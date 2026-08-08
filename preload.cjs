@@ -35,5 +35,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = () => callback();
     ipcRenderer.on('overlay:toggle', handler);
     return () => ipcRenderer.removeListener('overlay:toggle', handler);
+  },
+  onCornerHover: (callback) => {
+    const handler = (_event, isOver) => callback(isOver);
+    ipcRenderer.on('corner-hover', handler);
+    return () => ipcRenderer.removeListener('corner-hover', handler);
   }
 });

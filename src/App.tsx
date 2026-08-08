@@ -153,10 +153,18 @@ function App() {
   // durumunu DEĞİL, yalnızca sol üst köşe butonunun görünürlüğünü sürer.
   // Panel şablon hiç kurulmadıysa buton her zaman görünür (eski davranış).
   const [isLockScreenDetected, setIsLockScreenDetected] = useState(false);
-  // Kullanıcı şablonu silmeden oto-gizlenmeyi geçici olarak kapatabilsin.
+  // Kullanıcı şablonu silmeden "Auto Mod"u geçici olarak kapatabilsin.
   const [autoHideEnabled, setAutoHideEnabled] = useState(true);
   const isButtonVisible = !targetTemplate || !autoHideEnabled || isLockScreenDetected;
-  
+
+  // Pasif Mod: panel kapalıyken köşe butonu tamamen gizlenir, yalnızca fare
+  // tam o 100x100 köşeye gelince tekrar görünür/tıklanabilir olur. Açmanın
+  // tek yolları F9 (global kısayol, her zaman çalışır) ya da bu şekilde
+  // ortaya çıkan butona tıklamaktır.
+  const [passiveMode, setPassiveMode] = useState(false);
+  const [isCornerHovered, setIsCornerHovered] = useState(false);
+  const isToggleButtonVisible = isButtonVisible && (!passiveMode || isPanelOpen || isCornerHovered);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -249,12 +257,23 @@ function App() {
     });
   }, [isLockScreenDetected, targetTemplate, isExecuting, isTargeting, autoHideEnabled]);
 
-  // Sol üst köşe butonunun görünürlüğünü ana sürece bildir: buton görünür
-  // değilken 100x100 hitbox'ı da tıklamayı yakalamamalı, aksi halde oyunun
-  // üzerinde görünmez bir "ölü bölge" kalır (bkz. main.cjs poll döngüsü).
+  // Sol üst köşe butonunun GERÇEKTE görünür olup olmadığını (Pasif Mod
+  // dahil) ana sürece bildir: buton görünür değilken 100x100 hitbox'ı da
+  // tıklamayı yakalamamalı, aksi halde oyunun üzerinde görünmez bir "ölü
+  // bölge" kalır (bkz. main.cjs poll döngüsü).
   useEffect(() => {
-    (window as any).electronAPI?.setButtonVisible(isButtonVisible);
-  }, [isButtonVisible]);
+    (window as any).electronAPI?.setButtonVisible(isToggleButtonVisible);
+  }, [isToggleButtonVisible]);
+
+  // Pasif Mod'da butonun köşede olup olmadığını ana süreçten öğreniyoruz —
+  // buton zaten görünmezken normal React hover eventleri bunu yakalayamaz,
+  // çünkü o pikseller click-through modda ve DOM hiç mouse eventi almıyor.
+  useEffect(() => {
+    const cleanup = (window as any).electronAPI?.onCornerHover((isOver: boolean) => {
+      setIsCornerHovered(isOver);
+    });
+    return () => cleanup && cleanup();
+  }, []);
 
   // focusable:false tek başına yeterli olmadı: Gothic'in DirectInput'u
   // muhtemelen "foreground" iş birliği modunda, yani oyun kendisi ön planda
@@ -637,10 +656,12 @@ function App() {
         </div>
       )}
 
-      {/* Toggle Button: targeting sırasında her zaman gizli; oto-gizlen
-          kurulduysa yalnızca kilit ekranı algılandığında görünür. Panelin
-          açık/kapalı durumunu değiştirmez, sadece bu butonu gösterir/gizler. */}
-      {!isTargeting && isButtonVisible && (
+      {/* Toggle Button: targeting sırasında her zaman gizli; Auto Mod
+          kurulduysa yalnızca kilit ekranı algılandığında görünür; Pasif
+          Mod açıksa panel kapalıyken de fare köşeye gelmedikçe gizli
+          kalır. Panelin açık/kapalı durumunu değiştirmez, sadece bu
+          butonu gösterir/gizler. */}
+      {!isTargeting && isToggleButtonVisible && (
         <div className="absolute top-2 left-2 z-50">
           <button 
             onClick={() => {
@@ -928,10 +949,10 @@ function App() {
                    </p>
                 </div>
               </div>
-              {/* Section 4: Auto-Hide */}
+              {/* Section 4: Auto Mod */}
               <div className="flex flex-col gap-4">
                 <h3 className="text-sm font-bold tracking-widest text-gray-400 uppercase">
-                  4. Oto-Gizlen (Hedef Belirle)
+                  4. Auto Mod (Hedef Belirle)
                 </h3>
                 <div className="flex items-center justify-between bg-black/20 p-4 rounded-xl border border-gray-800/50">
                    <div className="text-xs text-gray-500">
@@ -939,7 +960,7 @@ function App() {
                        ? 'Programın oyunda yer kaplamaması için kilit ekranından bir köşe şablonu belirleyin.'
                        : autoHideEnabled
                          ? 'Hedef şablon aktif. Kilit ekranı harici gizlenilecek.'
-                         : 'Hedef şablon kayıtlı ama oto-gizlenme kapalı — buton her zaman görünür kalır.'}
+                         : 'Hedef şablon kayıtlı ama Auto Mod kapalı — buton her zaman görünür kalır.'}
                    </div>
                    <button
                      disabled={isExecuting}
@@ -952,10 +973,10 @@ function App() {
 
                 {targetTemplate && (
                   <div className="flex items-center justify-between bg-black/20 p-4 rounded-xl border border-gray-800/50">
-                    <span className="text-xs text-gray-500">Oto-Gizlenmeyi Etkinleştir</span>
+                    <span className="text-xs text-gray-500">Auto Mod'u Etkinleştir</span>
                     <button
                       onClick={() => setAutoHideEnabled(v => !v)}
-                      title={autoHideEnabled ? 'Oto-gizlenmeyi kapat' : 'Oto-gizlenmeyi aç'}
+                      title={autoHideEnabled ? "Auto Mod'u kapat" : "Auto Mod'u aç"}
                       className={`shrink-0 w-12 h-7 rounded-full relative transition-colors border ${
                         autoHideEnabled
                           ? 'bg-[var(--color-neon-blue)]/30 border-[var(--color-neon-blue)]/60'
@@ -970,6 +991,31 @@ function App() {
                     </button>
                   </div>
                 )}
+
+                <div className="flex items-center justify-between bg-black/20 p-4 rounded-xl border border-gray-800/50">
+                  <div className="text-xs text-gray-500">
+                    <div>Pasif Mod</div>
+                    <div className="text-[10px] text-gray-600 mt-0.5">
+                      Panel kapalıyken köşe butonu tamamen gizlenir; sadece fare o köşeye
+                      gelince görünür. Açmak için F9 veya köşeye gelip tıklama.
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setPassiveMode(v => !v)}
+                    title={passiveMode ? 'Pasif Modu kapat' : 'Pasif Modu aç'}
+                    className={`shrink-0 w-12 h-7 rounded-full relative transition-colors border ${
+                      passiveMode
+                        ? 'bg-[var(--color-neon-purple)]/30 border-[var(--color-neon-purple)]/60'
+                        : 'bg-black/40 border-gray-700'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform ${
+                        passiveMode ? 'translate-x-5 bg-[var(--color-neon-purple)]' : 'translate-x-0 bg-gray-500'
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
           </div>

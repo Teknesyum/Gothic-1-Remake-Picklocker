@@ -112,6 +112,14 @@ const PANEL_TOP = 80;
 const PANEL_WIDTH = 450;
 const PANEL_BOTTOM_MARGIN = 16;
 
+// Pasif Mod: köşe butonu simgesiz/görünmez dururken farenin butonun
+// bulunduğu 100x100 bölgeye girip girmediğini render'dan bağımsız olarak
+// bilmemiz gerekiyor (buton zaten görünmezken normal hit-testing bunu
+// yakalamaz). `screen.getCursorScreenPoint()` pencere click-through/pass
+// through modundayken bile çalışır, bu yüzden ayrı bir algılamaya gerek yok
+// — sadece bu bilgiyi renderer'a bildiriyoruz.
+let wasOverButtonCorner = false;
+
 // Bulletproof OS-level mouse polling
 setInterval(() => {
   if (!overlayWindow) return;
@@ -120,6 +128,12 @@ setInterval(() => {
   const winBounds = overlayWindow.getBounds();
   const relX = point.x - winBounds.x;
   const relY = point.y - winBounds.y;
+
+  const overButtonCorner = relX >= 0 && relX <= 100 && relY >= 0 && relY <= 100;
+  if (overButtonCorner !== wasOverButtonCorner) {
+    wasOverButtonCorner = overButtonCorner;
+    overlayWindow.webContents.send('corner-hover', overButtonCorner);
+  }
 
   let shouldCatch = false;
 
