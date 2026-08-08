@@ -1,46 +1,46 @@
 # Gothic 1 LockPicker
 
-Gothic 1 (Remake) oyunundaki plaka/kilit açma mini oyununu çözen, oyunun üzerine yerleşen şeffaf bir Electron overlay aracı. Başlangıç konumlarını ve plaka etkileşim yönlerini girersiniz; program en kısa hamle dizisini bulur ve isterseniz WASD tuşlarıyla otomatik olarak uygular.
+A transparent Electron overlay that solves the plate/dial lock-picking mini-game in Gothic 1 (Remake), sitting on top of the game window. You enter each plate's current position and its interaction directions; the app finds the shortest move sequence and, if you want, applies it automatically via WASD keystrokes.
 
-## Kurulum
+## Installation
 
-Windows'ta PowerShell açıp tek satır çalıştırın:
+Open PowerShell on Windows and run:
 
 ```powershell
 irm https://raw.githubusercontent.com/Teknesyum/Gothic-1-Remake-Picklocker/master/install.ps1 | iex
 ```
 
-Bu komut [Git](https://git-scm.com/downloads) ve [Node.js](https://nodejs.org) kurulu olmasını gerektirir. Betik repoyu `%LOCALAPPDATA%\Gothic1LockPicker` içine indirir, bağımlılıkları kurar ve masaüstüne çift tıklayınca gizli çalışan bir başlatıcı (`Gothic 1 LockPicker.bat`) bırakır.
+This requires [Git](https://git-scm.com/downloads) and [Node.js](https://nodejs.org) to be installed. The script downloads the repo into `%LOCALAPPDATA%\Gothic1LockPicker`, installs dependencies, and drops a hidden-running launcher (`Gothic 1 LockPicker.bat`) on your desktop.
 
-Program her açılışta otomatik güncelleme kontrolü yapar; yeni bir sürüm varsa güncellemek isteyip istemediğinizi sorar.
+The app checks for updates on every launch and asks whether you want to update if a newer version is available.
 
-## Kullanım
+## Usage
 
-1. `Gothic 1 LockPicker.bat` ile başlatın (veya oyun içindeyken **F9** ile paneli açıp kapatın).
-2. **1. Başlangıç Konumları** bölümünde her plakanın mevcut konumunu işaretleyin.
-3. **2. Etkileşim Yönleri** bölümünde hangi hareketin hangi plakaları nasıl etkilediğini (aynı yönde/ters yönde) girin.
-4. **ÇÖZ** ile kısa bir çözüm özeti görün, ya da doğrudan **OTOMATİK ÇÖZ** ile bulunan çözümü oyuna uygulayın.
+1. Launch it via `Gothic 1 LockPicker.bat` (or press **F9** in-game to open/close the panel).
+2. In **1. Starting Positions**, mark each plate's current position.
+3. In **2. Interaction Directions**, enter how each move affects the other plates (same direction / reversed).
+4. Click **SOLVE** to see a short solution summary, or go straight to **AUTO-SOLVE** to have it applied to the game.
 
-### Kısayollar
+### Shortcuts
 
-| Tuş | İşlev |
+| Key | Action |
 | --- | --- |
-| `F9` / `F10` / `Ctrl+Space` / `Alt+Z` | Paneli aç/kapat |
-| `Alt+X` / `F8` | Çalışan makroyu acil durdur |
+| `F9` / `F10` / `Ctrl+Space` / `Alt+Z` | Toggle the panel |
+| `Alt+X` / `F8` | Emergency-stop a running macro |
 
-### Auto Mod ve Pasif Mod
+### Auto Mode & Passive Mode
 
-- **Auto Mod**: Kilit ekranından bir köşe şablonu belirlediğinizde, program o şablonu ekranda algıladığında paneli otomatik gösterir/köşedeki butonu görünür kılar; algılama kaybolunca panel otomatik küçülür.
-- **Pasif Mod**: Panel kapalıyken köşedeki buton tamamen gizlenir, yalnızca fare tam o köşeye geldiğinde tekrar görünür. Paneli açmanın tek yolları F9 veya köşeye gelip tıklamaktır.
+- **Auto Mode**: once you've picked a reference corner from the lock screen, the app shows the corner button (and the panel, if you open it) whenever that template is detected on screen, and auto-minimizes the panel when it's no longer detected.
+- **Passive Mode**: while the panel is minimized, the corner button stays completely hidden and only reappears when the cursor is right over that spot. The only ways to open the panel are `F9` or hovering that corner and clicking.
 
-## Geliştirme
+## Development
 
 ```bash
 npm install
-npm run electron:dev   # Vite dev sunucusu + Electron birlikte
-npm run test           # LockSolver birim testleri (vitest)
-npm run lint           # oxlint
-npm run dist           # Taşınabilir .exe üretir (release/)
+npm run electron:dev   # Vite dev server + Electron together
+npm run test            # LockSolver unit tests (vitest)
+npm run lint             # oxlint
+npm run dist              # Build a portable .exe (release/)
 ```
 
-Mimari detayları ve tasarım kararları için [`CLAUDE.md`](CLAUDE.md) dosyasına bakın.
+See [`CLAUDE.md`](CLAUDE.md) for architecture details and design decisions.
