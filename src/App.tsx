@@ -775,7 +775,7 @@ function App() {
                 </div>
 
                 {(focusStatus === 'none' || focusStatus === 'fail') && (
-                  <div className="flex items-start gap-2 text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                  <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
                     <AlertTriangle size={14} className="shrink-0 mt-px" />
                     <span>
                       {focusStatus === 'none'
@@ -817,7 +817,7 @@ function App() {
                           ? 'text-gray-600'
                           : 'text-gray-700';
                       return (
-                        <div key={idx} ref={setActiveRef} className={`flex items-center gap-2 font-mono text-[10px] pl-1 transition-colors duration-300 ${mutedClass}`}>
+                        <div key={idx} ref={setActiveRef} className={`flex items-center gap-2 font-mono text-xs pl-1 transition-colors duration-300 ${mutedClass}`}>
                           <span className="w-3 shrink-0">{isDone ? '✓' : isCurrent ? '›' : '·'}</span>
                           <span>{group.label}</span>
                         </div>

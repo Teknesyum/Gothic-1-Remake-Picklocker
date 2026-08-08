@@ -205,6 +205,9 @@ try {
         Start-Sleep -Milliseconds ${holdTime}
         [void][G1Input]::Key([uint16]$scans[$i], [bool]$exts[$i], $true)
         Start-Sleep -Milliseconds ${delay}
+        # R (reset) sonrası oyunun kilidi gerçekten sıfırlaması için normal
+        # adım aralığının üstüne ekstra bekleme.
+        if ($scans[$i] -eq 0x13) { Start-Sleep -Milliseconds 200 }
     }
     Write-Marker 'DONE'
 } finally {
