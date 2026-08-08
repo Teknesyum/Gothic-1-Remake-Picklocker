@@ -484,7 +484,7 @@ function App() {
               </h3>
               
               <div className="flex">
-                <div className="flex flex-col mr-3 mt-6 gap-2">
+                <div className="flex flex-col mr-3 gap-2">
                   <div className="text-[9px] text-gray-500 uppercase tracking-widest h-6 flex items-end pb-1">Plaka</div>
                   {Array.from({length: numPlates}).map((_, i) => (
                     <div key={i} className="h-10 flex items-center justify-center text-xs font-mono font-bold text-[var(--color-neon-blue)]">
@@ -516,7 +516,7 @@ function App() {
               </h3>
               
               <div className="flex">
-                <div className="flex flex-col mr-3 mt-6 gap-2">
+                <div className="flex flex-col mr-3 gap-2">
                   <div className="text-[9px] text-gray-500 uppercase tracking-widest h-6 flex flex-col justify-end pb-1">
                     Hareket
                   </div>

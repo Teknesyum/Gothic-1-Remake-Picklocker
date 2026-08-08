@@ -11,15 +11,26 @@ let macroChild = null;
 function createOverlayWindow() {
   if (overlayWindow) return;
   const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.workAreaSize;
+  // bounds (not workAreaSize): the overlay must also cover the taskbar strip,
+  // otherwise a lock UI rendered under the taskbar has a dead zone.
+  const { x, y, width, height } = primaryDisplay.bounds;
 
   overlayWindow = new BrowserWindow({
+    x,
+    y,
     width,
     height,
     transparent: true,
     frame: false,
-    fullscreen: true,
-    alwaysOnTop: true,
+    // Deliberately NOT `fullscreen: true`. Windows only lets one real
+    // fullscreen surface own the screen at a time; a second fullscreen
+    // window (ours) fighting the game for that slot is what caused the
+    // overlay/game to intermittently minimize or the panel to appear
+    // "closed" after alt-tabbing. A borderless window sized to the full
+    // display avoids entering that OS-level fullscreen state entirely.
+    fullscreen: false,
+    resizable: false,
+    movable: false,
     skipTaskbar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -28,6 +39,12 @@ function createOverlayWindow() {
       webSecurity: false
     }
   });
+
+  // Plain alwaysOnTop (default 'floating' level) still loses to other
+  // topmost/fullscreen windows. 'screen-saver' is the highest z-order
+  // Windows exposes and is what keeps overlays above exclusive-mode apps.
+  overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   // Make it ignore mouse events initially except when we explicitly want clicks
   overlayWindow.setIgnoreMouseEvents(true, { forward: true });
