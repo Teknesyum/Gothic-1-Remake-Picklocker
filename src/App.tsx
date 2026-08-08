@@ -1,17 +1,78 @@
 import { useState, useEffect, useRef } from 'react';
-import { Play, ArrowRight, ArrowLeftRight, Circle, ChevronLeft, ChevronRight, Terminal, Clock, Crosshair, Menu, Minus, Square, Timer, AlertTriangle, Power, RotateCcw, Undo2, Search } from 'lucide-react';
+import { Play, ArrowRight, ArrowLeftRight, Circle, ChevronLeft, ChevronRight, Terminal, Clock, Crosshair, Menu, Minus, Square, Timer, AlertTriangle, Power, RotateCcw, Undo2, Search, CheckCircle2 } from 'lucide-react';
 import { LockSolver } from './LockSolver';
 
 type MacroStep = {
   key: string;
   desc: string;
+  kind: 'nav' | 'push';
+  plate: string;
 };
+
+type CompressedMove = { name: string; count: number };
+
+type DisplayGroup = {
+  label: string;
+  startIndex: number;
+  endIndex: number;
+};
+
+/**
+ * Ham (her tuş için ayrı) macroSteps dizisini panelde göstermeye uygun,
+ * kısa gruplu satırlara indirger: ardışık aynı yönlü geçiş adımları tek
+ * "A → E geçişi" satırında, ardışık aynı plaka/yön itmeleri tek "×N" satırında
+ * toplanır. Gerçek tuş gönderimi hâlâ macroSteps üzerinden, tek tek yapılır —
+ * bu yalnızca görsel bir özet.
+ */
+function groupStepsForDisplay(steps: MacroStep[]): DisplayGroup[] {
+  const groups: DisplayGroup[] = [];
+  let atPlate = 'A';
+  let i = 0;
+
+  while (i < steps.length) {
+    const start = i;
+    const cur = steps[i];
+
+    if (cur.kind === 'nav') {
+      let j = i;
+      while (j < steps.length && steps[j].kind === 'nav' && steps[j].key === cur.key) j++;
+      const toPlate = steps[j - 1].plate;
+      groups.push({
+        label: `${atPlate} → ${toPlate} geçişi (${j - i}x ${cur.key.toUpperCase()})`,
+        startIndex: start,
+        endIndex: j - 1
+      });
+      atPlate = toPlate;
+      i = j;
+    } else {
+      let j = i;
+      while (j < steps.length && steps[j].kind === 'push' && steps[j].key === cur.key && steps[j].plate === cur.plate) j++;
+      const dirText = cur.key === 'd' ? 'sağa' : 'sola';
+      groups.push({
+        label: `${cur.plate} plakası ${dirText} itiliyor ×${j - i}`,
+        startIndex: start,
+        endIndex: j - 1
+      });
+      atPlate = cur.plate;
+      i = j;
+    }
+  }
+
+  return groups;
+}
 
 type MacroResult = {
   ok: boolean;
   cancelled?: boolean;
   error?: string;
 };
+
+// Oto-gizlen şablon karşılaştırması: daha küçük bir örnekleme alanı, hedef
+// köşedeki animasyon/parıltı gibi değişken piksellere yakalanma ihtimalini
+// azaltır; daha yüksek eşik de küçük renk sapmalarına (video gürültüsü,
+// sıkıştırma artefaktı) tolerans tanır. Eskiden 50px/eşik 15 aşırı duyarlıydı.
+const CAPTURE_SIZE = 24;
+const MATCH_THRESHOLD = 30;
 
 type PersistedState = {
   numPlates: number;
@@ -73,11 +134,15 @@ function App() {
 
   const [isExecuting, setIsExecuting] = useState(false);
   const [macroSteps, setMacroSteps] = useState<MacroStep[]>([]);
+  // Kısa özet: "Çözümü Bul" sonrası gösterilen "3x A+ 2x C-" tarzı liste.
+  const [solutionSummary, setSolutionSummary] = useState<CompressedMove[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(-1);
   const [macroDelay, setMacroDelay] = useState(250);
   const [holdTime, setHoldTime] = useState(60);
   const [focusStatus, setFocusStatus] = useState<string | null>(null);
   const [macroError, setMacroError] = useState<string | null>(null);
+  // null = kutlama yok; 3,2,1,0 -> panel otomatik küçülüyor.
+  const [completionCountdown, setCompletionCountdown] = useState<number | null>(null);
 
   // Auto-Hide State
   const [isTargeting, setIsTargeting] = useState(false);
@@ -88,7 +153,9 @@ function App() {
   // durumunu DEĞİL, yalnızca sol üst köşe butonunun görünürlüğünü sürer.
   // Panel şablon hiç kurulmadıysa buton her zaman görünür (eski davranış).
   const [isLockScreenDetected, setIsLockScreenDetected] = useState(false);
-  const isButtonVisible = !targetTemplate || isLockScreenDetected;
+  // Kullanıcı şablonu silmeden oto-gizlenmeyi geçici olarak kapatabilsin.
+  const [autoHideEnabled, setAutoHideEnabled] = useState(true);
+  const isButtonVisible = !targetTemplate || !autoHideEnabled || isLockScreenDetected;
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -96,7 +163,7 @@ function App() {
   // Init WebRTC stream if we are targeting or if we have a template to poll
   useEffect(() => {
     let stream: MediaStream | null = null;
-    if (isTargeting || targetTemplate) {
+    if (isTargeting || (targetTemplate && autoHideEnabled)) {
       (async () => {
         try {
           const sourceId = await (window as any).electronAPI?.getDesktopSourceId();
@@ -127,26 +194,26 @@ function App() {
         stream.getTracks().forEach(t => t.stop());
       }
     };
-  }, [isTargeting, targetTemplate !== null]);
+  }, [isTargeting, targetTemplate !== null, autoHideEnabled]);
 
   // Polling loop
   useEffect(() => {
-    if (!targetTemplate || !targetRect || !videoRef.current || !canvasRef.current) return;
-    
+    if (!targetTemplate || !targetRect || !autoHideEnabled || !videoRef.current || !canvasRef.current) return;
+
     const interval = setInterval(() => {
       const video = videoRef.current!;
       const canvas = canvasRef.current!;
       const ctx = canvas.getContext('2d');
       if (!ctx || video.videoWidth === 0) return;
-      
-      canvas.width = 50;
-      canvas.height = 50;
-      
-      // Calculate video scaling vs screen if necessary. 
+
+      canvas.width = CAPTURE_SIZE;
+      canvas.height = CAPTURE_SIZE;
+
+      // Calculate video scaling vs screen if necessary.
       // Usually full screen capture matches screen resolution 1:1 on primary display.
-      ctx.drawImage(video, targetRect.x, targetRect.y, 50, 50, 0, 0, 50, 50);
-      const currentData = ctx.getImageData(0, 0, 50, 50).data;
-      
+      ctx.drawImage(video, targetRect.x, targetRect.y, CAPTURE_SIZE, CAPTURE_SIZE, 0, 0, CAPTURE_SIZE, CAPTURE_SIZE);
+      const currentData = ctx.getImageData(0, 0, CAPTURE_SIZE, CAPTURE_SIZE).data;
+
       let diff = 0;
       // Compare pixels (RGBA)
       for (let i = 0; i < currentData.length; i += 4) {
@@ -154,9 +221,9 @@ function App() {
         diff += Math.abs(currentData[i+1] - targetTemplate[i+1]); // G
         diff += Math.abs(currentData[i+2] - targetTemplate[i+2]); // B
       }
-      
-      const avgDiff = diff / (50 * 50);
-      const isMatch = avgDiff < 15;
+
+      const avgDiff = diff / (CAPTURE_SIZE * CAPTURE_SIZE);
+      const isMatch = avgDiff < MATCH_THRESHOLD;
 
       // Makro çalışırken tespit durumunu değiştirmiyoruz; aksi halde ekran
       // makro sırasında değiştikçe köşe butonu titreyebilir.
@@ -166,13 +233,13 @@ function App() {
     }, 1000); // Check every 1 second
 
     return () => clearInterval(interval);
-  }, [targetTemplate, targetRect, isExecuting]);
+  }, [targetTemplate, targetRect, isExecuting, autoHideEnabled]);
 
   // Kilit ekranı algılanmayı bırakırsa paneli otomatik kapatır (küçültür).
   // Açmak (büyütmek) her zaman kullanıcının elindedir — burada asla true'ya
   // çekilmez, yalnızca kapatma yönünde otomatik davranış vardır.
   useEffect(() => {
-    if (!targetTemplate) return; // oto-gizlen hiç kurulmadıysa dokunma
+    if (!targetTemplate || !autoHideEnabled) return; // oto-gizlen hiç kurulmadıysa/kapalıysa dokunma
     if (isLockScreenDetected || isExecuting || isTargeting) return;
 
     setIsPanelOpen(prev => {
@@ -180,7 +247,7 @@ function App() {
       (window as any).electronAPI?.setOverlayInteractive(false);
       return false;
     });
-  }, [isLockScreenDetected, targetTemplate, isExecuting, isTargeting]);
+  }, [isLockScreenDetected, targetTemplate, isExecuting, isTargeting, autoHideEnabled]);
 
   // Sol üst köşe butonunun görünürlüğünü ana sürece bildir: buton görünür
   // değilken 100x100 hitbox'ı da tıklamayı yakalamamalı, aksi halde oyunun
@@ -215,15 +282,15 @@ function App() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    // Capture 50x50 at cursorPos
-    const x = cursorPos.x - 25;
-    const y = cursorPos.y - 25;
-    
-    canvas.width = 50;
-    canvas.height = 50;
-    ctx.drawImage(video, x, y, 50, 50, 0, 0, 50, 50);
-    
-    const data = ctx.getImageData(0, 0, 50, 50).data;
+    // Capture CAPTURE_SIZE x CAPTURE_SIZE at cursorPos
+    const x = cursorPos.x - CAPTURE_SIZE / 2;
+    const y = cursorPos.y - CAPTURE_SIZE / 2;
+
+    canvas.width = CAPTURE_SIZE;
+    canvas.height = CAPTURE_SIZE;
+    ctx.drawImage(video, x, y, CAPTURE_SIZE, CAPTURE_SIZE, 0, 0, CAPTURE_SIZE, CAPTURE_SIZE);
+
+    const data = ctx.getImageData(0, 0, CAPTURE_SIZE, CAPTURE_SIZE).data;
     setTargetTemplate(new Uint8ClampedArray(data));
     setTargetRect({ x, y });
     // Şablon tam olarak şu anki (kilit ekranı) görüntüden alındığı için
@@ -296,6 +363,7 @@ function App() {
   // (butonla veya Geri Al/Sıfırla ile — hepsi startState/movesMatrix'i değiştirir).
   useEffect(() => {
     setMacroSteps([]);
+    setSolutionSummary([]);
     setCurrentStepIndex(-1);
   }, [startState, movesMatrix]);
 
@@ -336,9 +404,12 @@ function App() {
     const offFocus = api.onMacroFocus?.((status: string) => setFocusStatus(status));
     const offFinished = api.onMacroFinished?.((info: MacroResult = { ok: true }) => {
       setIsExecuting(false);
-      if (info && !info.ok && info.error) {
-        setMacroError(info.cancelled ? null : info.error);
+      if (info && !info.ok) {
+        if (info.error) setMacroError(info.cancelled ? null : info.error);
+        return;
       }
+      // Başarıyla bitti: "Kilit Açıldı" kutlaması + otomatik küçültme geri sayımı.
+      setCompletionCountdown(3);
     });
     const offAbort = api.onMacroAbort?.(() => {
       setIsExecuting(false);
@@ -358,8 +429,26 @@ function App() {
     setIsExecuting(false);
   };
 
-  /** Çözümü hesaplayıp tuş adımlarına çevirir; makroyu ÇALIŞTIRMAZ. */
-  const computeSolutionSteps = (): MacroStep[] | null => {
+  // "Kilit Açıldı" kutlamasından sonra 3-2-1 geri sayıp paneli otomatik küçültür.
+  useEffect(() => {
+    if (completionCountdown === null) return;
+
+    if (completionCountdown <= 0) {
+      setIsPanelOpen(false);
+      (window as any).electronAPI?.setOverlayInteractive(false);
+      setCompletionCountdown(null);
+      setMacroSteps([]);
+      setSolutionSummary([]);
+      setCurrentStepIndex(-1);
+      return;
+    }
+
+    const timer = setTimeout(() => setCompletionCountdown(c => (c ?? 1) - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [completionCountdown]);
+
+  /** Çözümü hesaplayıp hem kısa özete hem tuş adımlarına çevirir; makroyu ÇALIŞTIRMAZ. */
+  const computeSolutionSteps = (): { steps: MacroStep[]; compressed: CompressedMove[] } | null => {
     const moveNames = Array.from({length: numPlates}, (_, i) => String.fromCharCode(65 + i));
     const res = LockSolver.solve(startState, movesMatrix, moveNames);
 
@@ -384,11 +473,13 @@ function App() {
       // eşleniyordu.
       if (targetIndex > currentIndex) {
         for (let i = 0; i < targetIndex - currentIndex; i++) {
-          steps.push({ key: 'w', desc: `${String.fromCharCode(65 + currentIndex + i + 1)} plakasına iniliyor...` });
+          const reached = String.fromCharCode(65 + currentIndex + i + 1);
+          steps.push({ key: 'w', desc: `${reached} plakasına iniliyor...`, kind: 'nav', plate: reached });
         }
       } else if (targetIndex < currentIndex) {
         for (let i = 0; i < currentIndex - targetIndex; i++) {
-          steps.push({ key: 's', desc: `${String.fromCharCode(65 + currentIndex - i - 1)} plakasına çıkılıyor...` });
+          const reached = String.fromCharCode(65 + currentIndex - i - 1);
+          steps.push({ key: 's', desc: `${reached} plakasına çıkılıyor...`, kind: 'nav', plate: reached });
         }
       }
       currentIndex = targetIndex;
@@ -397,7 +488,7 @@ function App() {
       const pushKey = directionStr === '+' ? 'd' : 'a';
       const dirText = directionStr === '+' ? 'sağa' : 'sola';
       for (let i = 0; i < count; i++) {
-        steps.push({ key: pushKey, desc: `${targetPlateName} plakası ${dirText} itiliyor...` });
+        steps.push({ key: pushKey, desc: `${targetPlateName} plakası ${dirText} itiliyor...`, kind: 'push', plate: targetPlateName });
       }
     }
 
@@ -406,29 +497,22 @@ function App() {
       return null;
     }
 
-    return steps;
+    return { steps, compressed: res.compressed };
   };
 
-  /** "Çözümü Bul": adımları hesaplayıp gösterir, oyuna hiçbir tuş göndermez. */
+  /** "Çözümü Bul": kısa özeti gösterir, oyuna hiçbir tuş göndermez. */
   const handleFindSolution = () => {
-    const steps = computeSolutionSteps();
-    if (!steps) return;
+    const result = computeSolutionSteps();
+    if (!result) return;
 
-    setMacroSteps(steps);
+    setMacroSteps(result.steps);
+    setSolutionSummary(result.compressed);
     setCurrentStepIndex(-1);
     setMacroError(null);
   };
 
-  /** Bulunmuş çözümü vazgeçip düzenleme ekranına dön. */
-  const clearSolution = () => {
-    setMacroSteps([]);
-    setCurrentStepIndex(-1);
-  };
-
-  /** "Otomatik Çöz": zaten bulunmuş adımları makro olarak oyuna gönderir. */
-  const handleAutoSolve = () => {
-    if (macroSteps.length === 0) return;
-
+  /** Bulunmuş adımları makro olarak oyuna gönderip yürütmeye başlar. */
+  const beginExecution = (steps: MacroStep[]) => {
     setCurrentStepIndex(-1);
     setFocusStatus(null);
     setMacroError(null);
@@ -436,10 +520,24 @@ function App() {
 
     // Odağı oyuna vermeyi artık ana süreç üstleniyor (bkz. macro.cjs);
     // burada ayrıca beklemeye gerek yok.
-    (window as any).electronAPI?.executeMacro(macroSteps, {
+    (window as any).electronAPI?.executeMacro(steps, {
       delay: macroDelay,
       holdTime
     });
+  };
+
+  /**
+   * "Otomatik Çöz": önce "Çöz" ile bir çözüm bulunmuş olması gerekmez —
+   * her tıklamada çözümü yeniden hesaplayıp hiç beklemeden doğrudan
+   * uygulamaya geçer.
+   */
+  const handleAutoSolve = () => {
+    const result = computeSolutionSteps();
+    if (!result) return;
+
+    setMacroSteps(result.steps);
+    setSolutionSummary(result.compressed);
+    beginExecution(result.steps);
   };
 
   const renderPositionButton = (plateIndex: number, displayVal: number) => {
@@ -472,7 +570,7 @@ function App() {
     
     if (moveIndex === affectedIndex) {
       return (
-        <div key={affectedIndex} className="w-10 h-10 rounded flex items-center justify-center border transition-all duration-200 bg-[var(--color-neon-blue)]/10 border-[var(--color-neon-blue)]/30 shadow-[0_0_5px_var(--color-neon-blue)_inset]">
+        <div key={affectedIndex} className="flex-1 h-10 rounded flex items-center justify-center border transition-all duration-200 bg-[var(--color-neon-blue)]/10 border-[var(--color-neon-blue)]/30 shadow-[0_0_5px_var(--color-neon-blue)_inset]">
           <ArrowRight size={14} className="text-[var(--color-neon-blue)]" />
         </div>
       );
@@ -503,7 +601,7 @@ function App() {
           next[moveIndex] = row;
           setMovesMatrix(next);
         }}
-        className={`w-10 h-10 rounded flex items-center justify-center border transition-all duration-200 ${style} ${isExecuting ? 'opacity-50 cursor-not-allowed' : ''}`}
+        className={`flex-1 h-10 rounded flex items-center justify-center border transition-all duration-200 ${style} ${isExecuting ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
         {icon}
       </button>
@@ -527,9 +625,14 @@ function App() {
            <div className="absolute inset-0 flex items-center justify-center text-[var(--color-neon-pink)] drop-shadow-[0_0_5px_var(--color-neon-pink)] font-bold text-xl pointer-events-none animate-pulse">
               Kilit ekranından ayırt edici bir köşeye tıklayın (Örn: Zorluk yazısı)
            </div>
-           <div 
-             className="absolute w-[50px] h-[50px] border-2 border-[var(--color-neon-pink)] shadow-[0_0_15px_var(--color-neon-pink)] pointer-events-none"
-             style={{ left: cursorPos.x - 25, top: cursorPos.y - 25 }}
+           <div
+             className="absolute border-2 border-[var(--color-neon-pink)] shadow-[0_0_15px_var(--color-neon-pink)] pointer-events-none"
+             style={{
+               width: CAPTURE_SIZE,
+               height: CAPTURE_SIZE,
+               left: cursorPos.x - CAPTURE_SIZE / 2,
+               top: cursorPos.y - CAPTURE_SIZE / 2
+             }}
            />
         </div>
       )}
@@ -601,53 +704,64 @@ function App() {
         </div>
 
         {/* Console / Execution View */}
-        {isExecuting ? (
+        {(isExecuting || completionCountdown !== null) ? (
           <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-300">
-             <div className="flex items-center gap-3 text-[var(--color-neon-pink)] mb-2">
-                <Terminal size={20} className="animate-pulse" />
-                <h3 className="font-mono font-bold tracking-widest uppercase drop-shadow-[0_0_5px_var(--color-neon-pink)]">
-                  Çözüm Uygulanıyor...
-                </h3>
-                <span className="ml-auto font-mono text-xs text-gray-500">
-                  {Math.max(0, currentStepIndex + 1)}/{macroSteps.length}
-                </span>
-             </div>
+            {completionCountdown !== null ? (
+              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-emerald-400">
+                <CheckCircle2 size={56} className="drop-shadow-[0_0_10px_rgba(52,211,153,0.6)]" />
+                <div className="text-2xl font-bold tracking-widest drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]">
+                  KİLİT AÇILDI!
+                </div>
+                <div className="text-sm text-gray-400 font-mono">
+                  Otomatik küçültülüyor... {completionCountdown}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 text-[var(--color-neon-pink)] mb-2">
+                  <Terminal size={20} className="animate-pulse" />
+                  <h3 className="font-mono font-bold tracking-widest uppercase drop-shadow-[0_0_5px_var(--color-neon-pink)]">
+                    Çözüm Uygulanıyor...
+                  </h3>
+                  <span className="ml-auto font-mono text-xs text-gray-500">
+                    {Math.max(0, currentStepIndex + 1)}/{macroSteps.length}
+                  </span>
+                </div>
 
-             {(focusStatus === 'none' || focusStatus === 'fail') && (
-               <div className="flex items-start gap-2 text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
-                 <AlertTriangle size={14} className="shrink-0 mt-px" />
-                 <span>
-                   {focusStatus === 'none'
-                     ? 'Gothic penceresi bulunamadı — tuşlar o an ön planda olan pencereye gidiyor.'
-                     : 'Oyun penceresine odak verilemedi — tuşlar oyuna ulaşmayabilir.'}
-                 </span>
-               </div>
-             )}
-             <div className="flex-1 bg-black/50 border border-gray-800 rounded-xl p-4 overflow-hidden relative">
-               <div className="absolute inset-0 overflow-hidden flex flex-col gap-1 p-4 font-mono text-xs">
-                 {macroSteps.map((step, idx) => {
-                    let colorClass = "text-gray-600";
-                    let prefix = "[ ]";
-                    if (idx < currentStepIndex) {
-                       colorClass = "text-gray-400";
-                       prefix = "[✓]";
-                    } else if (idx === currentStepIndex) {
-                       colorClass = "text-[var(--color-neon-blue)] drop-shadow-[0_0_5px_var(--color-neon-blue)]";
-                       prefix = "[>]";
-                    }
+                {(focusStatus === 'none' || focusStatus === 'fail') && (
+                  <div className="flex items-start gap-2 text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                    <AlertTriangle size={14} className="shrink-0 mt-px" />
+                    <span>
+                      {focusStatus === 'none'
+                        ? 'Gothic penceresi bulunamadı — tuşlar o an ön planda olan pencereye gidiyor.'
+                        : 'Oyun penceresine odak verilemedi — tuşlar oyuna ulaşmayabilir.'}
+                    </span>
+                  </div>
+                )}
+                <div className="flex-1 bg-black/50 border border-gray-800 rounded-xl p-4 overflow-hidden relative">
+                  <div className="absolute inset-0 overflow-auto flex flex-col gap-1 p-4 font-mono text-xs custom-scrollbar">
+                    {groupStepsForDisplay(macroSteps).map((group, idx) => {
+                      let colorClass = "text-gray-600";
+                      let prefix = "[ ]";
+                      if (currentStepIndex > group.endIndex) {
+                        colorClass = "text-gray-400";
+                        prefix = "[✓]";
+                      } else if (currentStepIndex >= group.startIndex) {
+                        colorClass = "text-[var(--color-neon-blue)] drop-shadow-[0_0_5px_var(--color-neon-blue)]";
+                        prefix = "[>]";
+                      }
 
-                    return (
-                      <div key={idx} className={`flex items-center gap-3 transition-colors duration-300 ${colorClass}`}>
-                        <span className="w-8 shrink-0">{prefix}</span>
-                        <span className="flex-1">{step.desc}</span>
-                        <span className="bg-black/50 border border-gray-700 px-2 py-0.5 rounded text-[10px] uppercase">
-                          {step.key}
-                        </span>
-                      </div>
-                    );
-                 })}
-               </div>
-             </div>
+                      return (
+                        <div key={idx} className={`flex items-center gap-3 transition-colors duration-300 ${colorClass}`}>
+                          <span className="w-8 shrink-0">{prefix}</span>
+                          <span className="flex-1">{group.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         ) : (
           /* Normal Scrollable Content */
@@ -736,17 +850,21 @@ function App() {
                   ))}
                 </div>
 
-                <div className="flex flex-col gap-2 overflow-x-auto">
+                {/* Sabit genişlik (304px = 1. Bölüm'deki 7 sütunluk -3..+3
+                    ızgarasıyla aynı: 7*40px + 6*4px boşluk), hücreler
+                    flex-1 ile bu genişliği plaka sayısına göre eşit paylaşır
+                    — aksi halde plaka sayısı 7'den azken sağda boş alan kalıyordu. */}
+                <div className="flex flex-col gap-2 w-[304px]">
                   <div className="flex gap-1 h-6 items-end pb-1">
                     {Array.from({length: numPlates}).map((_, col) => (
-                      <div key={col} className="w-10 text-center text-xs font-mono text-[var(--color-neon-pink)]">
+                      <div key={col} className="flex-1 text-center text-xs font-mono text-[var(--color-neon-pink)]">
                         {String.fromCharCode(65 + col)}
                       </div>
                     ))}
                   </div>
-                  
+
                   {Array.from({length: numPlates}).map((_, row) => (
-                    <div key={row} className="flex gap-1">
+                    <div key={row} className="flex gap-1 w-full">
                       {Array.from({length: numPlates}).map((_, col) => renderMoveButton(row, col))}
                     </div>
                   ))}
@@ -817,7 +935,11 @@ function App() {
                 </h3>
                 <div className="flex items-center justify-between bg-black/20 p-4 rounded-xl border border-gray-800/50">
                    <div className="text-xs text-gray-500">
-                     {targetTemplate ? 'Hedef şablon aktif. Kilit ekranı harici gizlenilecek.' : 'Programın oyunda yer kaplamaması için kilit ekranından bir köşe şablonu belirleyin.'}
+                     {!targetTemplate
+                       ? 'Programın oyunda yer kaplamaması için kilit ekranından bir köşe şablonu belirleyin.'
+                       : autoHideEnabled
+                         ? 'Hedef şablon aktif. Kilit ekranı harici gizlenilecek.'
+                         : 'Hedef şablon kayıtlı ama oto-gizlenme kapalı — buton her zaman görünür kalır.'}
                    </div>
                    <button
                      disabled={isExecuting}
@@ -827,25 +949,50 @@ function App() {
                      <Crosshair size={18} />
                    </button>
                 </div>
+
+                {targetTemplate && (
+                  <div className="flex items-center justify-between bg-black/20 p-4 rounded-xl border border-gray-800/50">
+                    <span className="text-xs text-gray-500">Oto-Gizlenmeyi Etkinleştir</span>
+                    <button
+                      onClick={() => setAutoHideEnabled(v => !v)}
+                      title={autoHideEnabled ? 'Oto-gizlenmeyi kapat' : 'Oto-gizlenmeyi aç'}
+                      className={`shrink-0 w-12 h-7 rounded-full relative transition-colors border ${
+                        autoHideEnabled
+                          ? 'bg-[var(--color-neon-blue)]/30 border-[var(--color-neon-blue)]/60'
+                          : 'bg-black/40 border-gray-700'
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform ${
+                          autoHideEnabled ? 'translate-x-5 bg-[var(--color-neon-blue)]' : 'translate-x-0 bg-gray-500'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         )}
 
-        {/* Solution Preview — Çözümü Bul ile hesaplanan adımlar, oyuna
-            henüz hiçbir tuş gönderilmeden burada listelenir. Kullanıcı
-            isterse Otomatik Çöz'e basmadan bu listeyi kendisi uygulayabilir. */}
-        {!isExecuting && macroSteps.length > 0 && (
-          <div className="mt-4 bg-black/40 border border-[var(--color-neon-blue)]/20 rounded-xl p-3 max-h-40 overflow-auto flex flex-col gap-1 font-mono text-xs shrink-0 custom-scrollbar">
-            {macroSteps.map((step, idx) => (
-              <div key={idx} className="flex items-center gap-3 text-gray-400">
-                <span className="w-6 shrink-0 text-gray-600">{idx + 1}.</span>
-                <span className="flex-1">{step.desc}</span>
-                <span className="bg-black/50 border border-gray-700 px-2 py-0.5 rounded text-[10px] uppercase">
-                  {step.key}
+        {/* Solution Preview — Çözümü Bul ile hesaplanan kısa özet ("3x A+"
+            gibi), oyuna henüz hiçbir tuş gönderilmeden burada listelenir.
+            Kullanıcı isterse Otomatik Çöz'e basmadan bunu kendisi uygulayabilir. */}
+        {!isExecuting && completionCountdown === null && solutionSummary.length > 0 && (
+          <div className="mt-4 bg-black/40 border border-[var(--color-neon-blue)]/20 rounded-xl p-3 flex flex-col gap-2 shrink-0">
+            <div className="flex flex-wrap gap-2 font-mono text-xs">
+              {solutionSummary.map((move, idx) => (
+                <span
+                  key={idx}
+                  className="bg-black/50 border border-gray-700 px-2 py-1 rounded text-gray-300"
+                >
+                  {move.count}x {move.name}
                 </span>
-              </div>
-            ))}
+              ))}
+            </div>
+            <div className="text-[10px] text-gray-500 uppercase tracking-widest text-right">
+              Toplam {solutionSummary.reduce((sum, m) => sum + m.count, 0)} hamle
+            </div>
           </div>
         )}
 
@@ -859,7 +1006,7 @@ function App() {
             </div>
           )}
 
-          {isExecuting ? (
+          {completionCountdown !== null ? null : isExecuting ? (
             <button
               onClick={handleStop}
               className="w-full bg-[var(--color-neon-pink)] hover:bg-[var(--color-neon-pink)]/80 text-black font-bold tracking-widest py-4 rounded-xl flex items-center justify-center gap-3 transition-all hover:scale-[1.02] shadow-[0_0_20px_rgba(255,0,128,0.3)]"
@@ -867,31 +1014,26 @@ function App() {
               <Square size={18} className="fill-black" />
               DURDUR (ALT+X)
             </button>
-          ) : macroSteps.length > 0 ? (
+          ) : (
+            // İki buton her zaman yan yana: "Çöz" sadece önizler, "Otomatik
+            // Çöz" önce çözüm bulunmuş olsun beklemez — kendi hesaplayıp
+            // hemen uygular.
             <div className="flex gap-3">
               <button
-                onClick={clearSolution}
-                title="Çözümü unut, düzenlemeye dön"
-                className="shrink-0 px-4 py-4 rounded-xl border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-all flex items-center justify-center"
+                onClick={handleFindSolution}
+                className="w-2/5 bg-[var(--color-neon-purple)]/10 hover:bg-[var(--color-neon-purple)]/20 border border-[var(--color-neon-purple)]/50 text-[var(--color-neon-purple)] font-bold tracking-widest py-4 rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02]"
               >
-                <RotateCcw size={18} />
+                <Search size={16} />
+                ÇÖZ
               </button>
               <button
                 onClick={handleAutoSolve}
-                className="flex-1 bg-[var(--color-neon-blue)] hover:bg-[var(--color-neon-blue)]/80 text-black font-bold tracking-widest py-4 rounded-xl flex items-center justify-center gap-3 transition-all hover:scale-[1.02] shadow-[0_0_20px_rgba(0,243,255,0.3)]"
+                className="w-3/5 bg-[var(--color-neon-blue)] hover:bg-[var(--color-neon-blue)]/80 text-black font-bold tracking-widest py-4 rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02] shadow-[0_0_20px_rgba(0,243,255,0.3)]"
               >
                 <Play size={18} className="fill-black" />
                 OTOMATİK ÇÖZ
               </button>
             </div>
-          ) : (
-            <button
-              onClick={handleFindSolution}
-              className="w-full bg-[var(--color-neon-blue)] hover:bg-[var(--color-neon-blue)]/80 text-black font-bold tracking-widest py-4 rounded-xl flex items-center justify-center gap-3 transition-all hover:scale-[1.02] shadow-[0_0_20px_rgba(0,243,255,0.3)]"
-            >
-              <Search size={18} />
-              ÇÖZÜMÜ BUL
-            </button>
           )}
         </div>
       </div>

@@ -1,7 +1,11 @@
-const { app, BrowserWindow, ipcMain, globalShortcut, screen, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, desktopCapturer, dialog } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
+const fs = require('fs');
+const { spawn, exec } = require('child_process');
+const { promisify } = require('util');
 const { runMacro, releaseAllKeys, runFocusGuard } = require('./macro.cjs');
+
+const execAsync = promisify(exec);
 
 let overlayWindow;
 let isPanelOpen = false;
@@ -239,8 +243,52 @@ ipcMain.handle('get-desktop-source-id', async () => {
   return null;
 });
 
+/**
+ * Her açılışta git tabanlı güncelleme kontrolü. Paketlenmiş (asar) sürümde
+ * `.git` dizini bulunmadığı için sessizce atlanır — bu yalnızca install.ps1
+ * ile git-clone edilen geliştirme kurulumları için çalışır (uygulamanın
+ * fiilen kullanıldığı yöntem: `npm run electron:dev`).
+ *
+ * Kullanıcı "Şimdi Değil" derse hiçbir şey yapmadan mevcut (eski) sürümle
+ * devam edilir. "Güncelle" derse `git reset --hard origin/master` + `npm
+ * install` çalıştırılıp uygulama yeniden başlatılır.
+ */
+async function checkForUpdates() {
+  if (!fs.existsSync(path.join(__dirname, '.git'))) return;
+
+  try {
+    const local = (await execAsync('git rev-parse HEAD', { cwd: __dirname })).stdout.trim();
+    await execAsync('git fetch origin master --quiet', { cwd: __dirname, timeout: 10000 });
+    const remote = (await execAsync('git rev-parse origin/master', { cwd: __dirname })).stdout.trim();
+
+    if (local === remote) return; // güncel
+
+    const { response } = await dialog.showMessageBox({
+      type: 'question',
+      buttons: ['Güncelle ve Yeniden Başlat', 'Şimdi Değil'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Güncelleme Mevcut',
+      message: 'Gothic 1 LockPicker için yeni bir sürüm mevcut.',
+      detail: 'Şimdi güncellensin mi? Uygulama yeniden başlatılacak.'
+    });
+
+    if (response !== 0) return; // "Şimdi Değil" -> eski sürümle devam
+
+    await execAsync('git reset --hard origin/master', { cwd: __dirname });
+    await execAsync('npm install', { cwd: __dirname, timeout: 300000 });
+
+    app.relaunch();
+    app.exit(0);
+  } catch (err) {
+    // Git yok, internet yok, fetch başarısız, vs. — sessizce eski sürümle devam.
+    console.error('Güncelleme kontrolü başarısız:', err.message);
+  }
+}
+
 app.whenReady().then(() => {
   createOverlayWindow();
+  checkForUpdates();
 
   // Bind multiple hotkeys in case the game blocks one
   const toggleFn = () => {
