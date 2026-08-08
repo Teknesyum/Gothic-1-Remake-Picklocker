@@ -24,7 +24,8 @@ const SCANCODES = {
   w: { scan: 0x11, ext: false },
   a: { scan: 0x1e, ext: false },
   s: { scan: 0x1f, ext: false },
-  d: { scan: 0x20, ext: false }
+  d: { scan: 0x20, ext: false },
+  r: { scan: 0x13, ext: false }
 };
 
 const DEFAULTS = {
@@ -208,7 +209,7 @@ try {
     Write-Marker 'DONE'
 } finally {
     # Süreç yarıda kesilirse tuşun basılı kalmaması için hepsini bırak.
-    foreach ($pair in @(@(0x11,$false), @(0x1E,$false), @(0x1F,$false), @(0x20,$false))) {
+    foreach ($pair in @(@(0x11,$false), @(0x1E,$false), @(0x1F,$false), @(0x20,$false), @(0x13,$false))) {
         [void][G1Input]::Key([uint16]$pair[0], [bool]$pair[1], $true)
     }
 }

@@ -5,24 +5,23 @@ import { LockSolver } from './LockSolver';
 type MacroStep = {
   key: string;
   desc: string;
-  kind: 'nav' | 'push';
+  kind: 'reset' | 'nav' | 'push';
   plate: string;
 };
 
 type CompressedMove = { name: string; count: number };
 
-type DisplayGroup = {
-  label: string;
-  startIndex: number;
-  endIndex: number;
-};
+type DisplayGroup =
+  | { type: 'reset'; label: string; startIndex: number; endIndex: number }
+  | { type: 'nav'; label: string; startIndex: number; endIndex: number }
+  | { type: 'push'; plate: string; sign: '+' | '-'; count: number; startIndex: number; endIndex: number };
 
 /**
  * Ham (her tuş için ayrı) macroSteps dizisini panelde göstermeye uygun,
  * kısa gruplu satırlara indirger: ardışık aynı yönlü geçiş adımları tek
- * "A → E geçişi" satırında, ardışık aynı plaka/yön itmeleri tek "×N" satırında
- * toplanır. Gerçek tuş gönderimi hâlâ macroSteps üzerinden, tek tek yapılır —
- * bu yalnızca görsel bir özet.
+ * "A → E geçişi" satırında, ardışık aynı plaka/yön itmeleri "3x A+" gibi tek
+ * bir hamle özetinde toplanır. Gerçek tuş gönderimi hâlâ macroSteps üzerinden,
+ * tek tek yapılır — bu yalnızca görsel bir özet.
  */
 function groupStepsForDisplay(steps: MacroStep[]): DisplayGroup[] {
   const groups: DisplayGroup[] = [];
@@ -33,11 +32,15 @@ function groupStepsForDisplay(steps: MacroStep[]): DisplayGroup[] {
     const start = i;
     const cur = steps[i];
 
-    if (cur.kind === 'nav') {
+    if (cur.kind === 'reset') {
+      groups.push({ type: 'reset', label: 'Kilit sıfırlanıyor (R)', startIndex: start, endIndex: start });
+      i++;
+    } else if (cur.kind === 'nav') {
       let j = i;
       while (j < steps.length && steps[j].kind === 'nav' && steps[j].key === cur.key) j++;
       const toPlate = steps[j - 1].plate;
       groups.push({
+        type: 'nav',
         label: `${atPlate} → ${toPlate} geçişi (${j - i}x ${cur.key.toUpperCase()})`,
         startIndex: start,
         endIndex: j - 1
@@ -47,9 +50,11 @@ function groupStepsForDisplay(steps: MacroStep[]): DisplayGroup[] {
     } else {
       let j = i;
       while (j < steps.length && steps[j].kind === 'push' && steps[j].key === cur.key && steps[j].plate === cur.plate) j++;
-      const dirText = cur.key === 'd' ? 'sağa' : 'sola';
       groups.push({
-        label: `${cur.plate} plakası ${dirText} itiliyor ×${j - i}`,
+        type: 'push',
+        plate: cur.plate,
+        sign: cur.key === 'd' ? '+' : '-',
+        count: j - i,
         startIndex: start,
         endIndex: j - 1
       });
@@ -137,6 +142,20 @@ function App() {
   // Kısa özet: "Çözümü Bul" sonrası gösterilen "3x A+ 2x C-" tarzı liste.
   const [solutionSummary, setSolutionSummary] = useState<CompressedMove[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(-1);
+  // Uygulanan hamlenin listede sabit bir konumda kalması için: her yeni
+  // adımda o an aktif olan grubu kapsayan konteynerin içine kaydırıyoruz
+  // (satırların kendisi kaymıyor, konteyner kayıyor — kullanıcı sürekli
+  // aynı yere bakabiliyor).
+  const activeGroupRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    activeGroupRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [currentStepIndex]);
+  // "Kaç hamle var / kaçıncıdayız": R ve geçiş (nav) tuşları hamle sayılmaz,
+  // yalnızca gerçek plaka itmeleri (push) "hamle" olarak sayılıyor.
+  const totalHamleCount = macroSteps.filter(s => s.kind === 'push').length;
+  const completedHamleCount = macroSteps
+    .slice(0, Math.max(0, currentStepIndex + 1))
+    .filter(s => s.kind === 'push').length;
   const [macroDelay, setMacroDelay] = useState(250);
   const [holdTime, setHoldTime] = useState(60);
   const [focusStatus, setFocusStatus] = useState<string | null>(null);
@@ -428,7 +447,7 @@ function App() {
         return;
       }
       // Başarıyla bitti: "Kilit Açıldı" kutlaması + otomatik küçültme geri sayımı.
-      setCompletionCountdown(3);
+      setCompletionCountdown(2);
     });
     const offAbort = api.onMacroAbort?.(() => {
       setIsExecuting(false);
@@ -515,6 +534,12 @@ function App() {
       setMacroError('Kilit zaten çözülmüş durumda — gönderilecek tuş yok.');
       return null;
     }
+
+    // Otomatik çöz her zaman R ile başlar: kilit önceden yarım bırakılmış
+    // veya karışmış olabilir, R oyunun kendi reset tuşu (bkz. oyun içi
+    // ipucu) — hesapladığımız çözüm her zaman A plakasından, sıfır konumdan
+    // başladığını varsayıyor, bu yüzden gerçek durum garanti altına alınıyor.
+    steps.unshift({ key: 'r', desc: 'Kilit sıfırlanıyor (R)...', kind: 'reset', plate: '' });
 
     return { steps, compressed: res.compressed };
   };
@@ -744,8 +769,8 @@ function App() {
                   <h3 className="font-mono font-bold tracking-widest uppercase drop-shadow-[0_0_5px_var(--color-neon-pink)]">
                     Çözüm Uygulanıyor...
                   </h3>
-                  <span className="ml-auto font-mono text-xs text-gray-500">
-                    {Math.max(0, currentStepIndex + 1)}/{macroSteps.length}
+                  <span className="ml-auto font-mono text-lg font-black text-[var(--color-neon-blue)] drop-shadow-[0_0_8px_var(--color-neon-blue)]">
+                    {completedHamleCount}/{totalHamleCount}
                   </span>
                 </div>
 
@@ -760,22 +785,41 @@ function App() {
                   </div>
                 )}
                 <div className="flex-1 bg-black/50 border border-gray-800 rounded-xl p-4 overflow-hidden relative">
-                  <div className="absolute inset-0 overflow-auto flex flex-col gap-1 p-4 font-mono text-xs custom-scrollbar">
+                  <div className="absolute inset-0 overflow-auto flex flex-col gap-2 p-4 custom-scrollbar">
                     {groupStepsForDisplay(macroSteps).map((group, idx) => {
-                      let colorClass = "text-gray-600";
-                      let prefix = "[ ]";
-                      if (currentStepIndex > group.endIndex) {
-                        colorClass = "text-gray-400";
-                        prefix = "[✓]";
-                      } else if (currentStepIndex >= group.startIndex) {
-                        colorClass = "text-[var(--color-neon-blue)] drop-shadow-[0_0_5px_var(--color-neon-blue)]";
-                        prefix = "[>]";
+                      const isDone = currentStepIndex > group.endIndex;
+                      const isCurrent = !isDone && currentStepIndex >= group.startIndex;
+                      const setActiveRef = isCurrent ? (el: HTMLDivElement | null) => { activeGroupRef.current = el; } : undefined;
+
+                      if (group.type === 'push') {
+                        // Asıl "hamle": büyük, neon, göze çarpan rozet.
+                        const statusClass = isCurrent
+                          ? 'text-[var(--color-neon-blue)] border-[var(--color-neon-blue)] shadow-[0_0_16px_rgba(0,243,255,0.5)] scale-105'
+                          : isDone
+                            ? 'text-emerald-400/70 border-emerald-400/30'
+                            : 'text-gray-500 border-gray-700';
+                        return (
+                          <div
+                            key={idx}
+                            ref={setActiveRef}
+                            className={`flex items-center gap-2 font-mono font-black text-2xl px-3 py-1.5 rounded-lg border bg-black/40 transition-all duration-300 ${statusClass}`}
+                          >
+                            {isDone && <CheckCircle2 size={18} className="shrink-0" />}
+                            {group.count}x {group.plate}{group.sign}
+                          </div>
+                        );
                       }
 
+                      // reset / nav: destekleyici bilgi, küçük ve soluk kalsın.
+                      const mutedClass = isCurrent
+                        ? 'text-[var(--color-neon-pink)]'
+                        : isDone
+                          ? 'text-gray-600'
+                          : 'text-gray-700';
                       return (
-                        <div key={idx} className={`flex items-center gap-3 transition-colors duration-300 ${colorClass}`}>
-                          <span className="w-8 shrink-0">{prefix}</span>
-                          <span className="flex-1">{group.label}</span>
+                        <div key={idx} ref={setActiveRef} className={`flex items-center gap-2 font-mono text-[10px] pl-1 transition-colors duration-300 ${mutedClass}`}>
+                          <span className="w-3 shrink-0">{isDone ? '✓' : isCurrent ? '›' : '·'}</span>
+                          <span>{group.label}</span>
                         </div>
                       );
                     })}
@@ -1025,18 +1069,18 @@ function App() {
             gibi), oyuna henüz hiçbir tuş gönderilmeden burada listelenir.
             Kullanıcı isterse Otomatik Çöz'e basmadan bunu kendisi uygulayabilir. */}
         {!isExecuting && completionCountdown === null && solutionSummary.length > 0 && (
-          <div className="mt-4 bg-black/40 border border-[var(--color-neon-blue)]/20 rounded-xl p-3 flex flex-col gap-2 shrink-0">
-            <div className="flex flex-wrap gap-2 font-mono text-xs">
+          <div className="mt-4 bg-black/40 border border-[var(--color-neon-blue)]/30 rounded-xl p-4 flex flex-col gap-3 shrink-0">
+            <div className="flex flex-wrap gap-2 font-mono">
               {solutionSummary.map((move, idx) => (
                 <span
                   key={idx}
-                  className="bg-black/50 border border-gray-700 px-2 py-1 rounded text-gray-300"
+                  className="bg-black/50 border border-[var(--color-neon-blue)]/50 px-3 py-1.5 rounded-lg text-xl font-black text-[var(--color-neon-blue)] shadow-[0_0_10px_rgba(0,243,255,0.25)]"
                 >
                   {move.count}x {move.name}
                 </span>
               ))}
             </div>
-            <div className="text-[10px] text-gray-500 uppercase tracking-widest text-right">
+            <div className="text-sm font-bold text-[var(--color-neon-pink)] uppercase tracking-widest text-right drop-shadow-[0_0_5px_var(--color-neon-pink)]">
               Toplam {solutionSummary.reduce((sum, m) => sum + m.count, 0)} hamle
             </div>
           </div>
