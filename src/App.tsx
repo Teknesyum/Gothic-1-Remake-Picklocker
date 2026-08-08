@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Play, ArrowRight, ArrowLeftRight, Circle, ChevronLeft, ChevronRight, Terminal, Clock, Crosshair, Menu, Minus, Square, Timer, Keyboard, AlertTriangle } from 'lucide-react';
+import { Play, ArrowRight, ArrowLeftRight, Circle, ChevronLeft, ChevronRight, Terminal, Clock, Crosshair, Menu, Minus, Square, Timer, AlertTriangle, Power, RotateCcw, Undo2, Search } from 'lucide-react';
 import { LockSolver } from './LockSolver';
 
 type MacroStep = {
@@ -7,30 +7,75 @@ type MacroStep = {
   desc: string;
 };
 
-type KeyScheme = 'wasd' | 'arrows';
-
 type MacroResult = {
   ok: boolean;
   cancelled?: boolean;
   error?: string;
 };
 
+type PersistedState = {
+  numPlates: number;
+  startState: number[];
+  movesMatrix: number[][];
+};
+
+const STORAGE_KEY = 'g1lockpicker.plates.v1';
+
+const buildIdentityMatrix = (n: number): number[][] =>
+  Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+
+/** Uygulama kapanıp açılsa bile son başlangıç konumu/vektörleri hatırlanır. */
+function loadPersistedState(): PersistedState | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      typeof parsed?.numPlates !== 'number' ||
+      !Array.isArray(parsed?.startState) ||
+      !Array.isArray(parsed?.movesMatrix)
+    ) {
+      return null;
+    }
+    return parsed as PersistedState;
+  } catch {
+    return null;
+  }
+}
+
 function App() {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
-  const [numPlates, setNumPlates] = useState(6);
-  const [startState, setStartState] = useState<number[]>([0, 0, 0, 0, 0, 0]);
-  const [movesMatrix, setMovesMatrix] = useState<number[][]>(() => {
-    const mat = Array(6).fill(0).map(() => Array(6).fill(0));
-    for(let i = 0; i < 6; i++) mat[i][i] = 1;
-    return mat;
-  });
-  
+  const [numPlates, setNumPlates] = useState(() => loadPersistedState()?.numPlates ?? 6);
+  const [startState, setStartState] = useState<number[]>(
+    () => loadPersistedState()?.startState ?? [0, 0, 0, 0, 0, 0]
+  );
+  const [movesMatrix, setMovesMatrix] = useState<number[][]>(
+    () => loadPersistedState()?.movesMatrix ?? buildIdentityMatrix(6)
+  );
+
+  // "Geri Al" için konum/vektör geçmişi (bkz. pushHistory/undo aşağıda).
+  const [history, setHistory] = useState<{ startState: number[]; movesMatrix: number[][] }[]>([]);
+
+  // Oyuncunun kilit açarken hangi plakayı bitirdiğini elle işaretleyebilmesi
+  // için — çözümü etkilemez, salt görsel bir takip yardımcısı. İki bölüm
+  // (konum / vektör) birbirinden bağımsız işaretlenebilsin diye ayrı setler.
+  const [completedPositions, setCompletedPositions] = useState<Set<number>>(new Set());
+  const [completedVectors, setCompletedVectors] = useState<Set<number>>(new Set());
+
+  const toggleInSet = (setter: React.Dispatch<React.SetStateAction<Set<number>>>, index: number) => {
+    setter(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  };
+
   const [isExecuting, setIsExecuting] = useState(false);
   const [macroSteps, setMacroSteps] = useState<MacroStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(-1);
   const [macroDelay, setMacroDelay] = useState(250);
   const [holdTime, setHoldTime] = useState(60);
-  const [keyScheme, setKeyScheme] = useState<KeyScheme>('wasd');
   const [focusStatus, setFocusStatus] = useState<string | null>(null);
   const [macroError, setMacroError] = useState<string | null>(null);
 
@@ -39,6 +84,11 @@ function App() {
   const [targetRect, setTargetRect] = useState<{x: number, y: number} | null>(null);
   const [targetTemplate, setTargetTemplate] = useState<Uint8ClampedArray | null>(null);
   const [cursorPos, setCursorPos] = useState({x: 0, y: 0});
+  // Kilit ekranı şu an tespit ediliyor mu. Bu, panelin açık/kapalı
+  // durumunu DEĞİL, yalnızca sol üst köşe butonunun görünürlüğünü sürer.
+  // Panel şablon hiç kurulmadıysa buton her zaman görünür (eski davranış).
+  const [isLockScreenDetected, setIsLockScreenDetected] = useState(false);
+  const isButtonVisible = !targetTemplate || isLockScreenDetected;
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -107,25 +157,56 @@ function App() {
       
       const avgDiff = diff / (50 * 50);
       const isMatch = avgDiff < 15;
-      
-      setIsPanelOpen(prev => {
-        // If we are executing a macro, don't auto-hide/show
-        if (isExecuting) return prev;
-        
-        if (isMatch && !prev) {
-          (window as any).electronAPI?.setOverlayInteractive(true);
-          return true;
-        } else if (!isMatch && prev) {
-          (window as any).electronAPI?.setOverlayInteractive(false);
-          return false;
-        }
-        return prev;
-      });
-      
+
+      // Makro çalışırken tespit durumunu değiştirmiyoruz; aksi halde ekran
+      // makro sırasında değiştikçe köşe butonu titreyebilir.
+      if (!isExecuting) {
+        setIsLockScreenDetected(isMatch);
+      }
     }, 1000); // Check every 1 second
-    
+
     return () => clearInterval(interval);
   }, [targetTemplate, targetRect, isExecuting]);
+
+  // Kilit ekranı algılanmayı bırakırsa paneli otomatik kapatır (küçültür).
+  // Açmak (büyütmek) her zaman kullanıcının elindedir — burada asla true'ya
+  // çekilmez, yalnızca kapatma yönünde otomatik davranış vardır.
+  useEffect(() => {
+    if (!targetTemplate) return; // oto-gizlen hiç kurulmadıysa dokunma
+    if (isLockScreenDetected || isExecuting || isTargeting) return;
+
+    setIsPanelOpen(prev => {
+      if (!prev) return prev;
+      (window as any).electronAPI?.setOverlayInteractive(false);
+      return false;
+    });
+  }, [isLockScreenDetected, targetTemplate, isExecuting, isTargeting]);
+
+  // Sol üst köşe butonunun görünürlüğünü ana sürece bildir: buton görünür
+  // değilken 100x100 hitbox'ı da tıklamayı yakalamamalı, aksi halde oyunun
+  // üzerinde görünmez bir "ölü bölge" kalır (bkz. main.cjs poll döngüsü).
+  useEffect(() => {
+    (window as any).electronAPI?.setButtonVisible(isButtonVisible);
+  }, [isButtonVisible]);
+
+  // focusable:false tek başına yeterli olmadı: Gothic'in DirectInput'u
+  // muhtemelen "foreground" iş birliği modunda, yani oyun kendisi ön planda
+  // olmadığı sürece fiziksel klavyeyi tamamen görmezden geliyor — overlay'in
+  // "aktif" sayılıp sayılmaması bundan bağımsız. Panel açıkken (makro
+  // çalışmıyor, hedefleme yapılmıyorken) arka planda sürekli bir bekçi
+  // koşturup oyunun ön planını geri kazandırıyoruz; böylece panel açıkken
+  // vektör/plaka ayarlarını fareyle değiştirirken WASD oyuna gitmeye devam
+  // eder. Makro çalışırken bekçiyi kapatıyoruz (main.cjs zaten yapıyor) —
+  // aynı ALT-tap numarasını iki süreç birden kullanınca makronun kendi
+  // zamanlaması bozulabilir.
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    if (isPanelOpen && !isTargeting && !isExecuting) {
+      api?.startFocusGuard();
+    } else {
+      api?.stopFocusGuard();
+    }
+  }, [isPanelOpen, isTargeting, isExecuting]);
 
   const handleTargetClick = () => {
     if (!videoRef.current || !canvasRef.current) return;
@@ -145,6 +226,9 @@ function App() {
     const data = ctx.getImageData(0, 0, 50, 50).data;
     setTargetTemplate(new Uint8ClampedArray(data));
     setTargetRect({ x, y });
+    // Şablon tam olarak şu anki (kilit ekranı) görüntüden alındığı için
+    // baştan "algılandı" say — ilk poll turuna kadar buton kaybolmasın.
+    setIsLockScreenDetected(true);
     setIsTargeting(false);
     (window as any).electronAPI?.setOverlayInteractive(isPanelOpen);
   };
@@ -191,7 +275,53 @@ function App() {
       }
       return next;
     });
+
+    // Plaka sayısı değişince eski indekslere ait işaretler ve geçmiş anlamsız kalır.
+    setCompletedPositions(new Set());
+    setCompletedVectors(new Set());
+    setHistory([]);
   }, [numPlates]);
+
+  // Başlangıç konumu ve vektörleri değiştikçe kalıcı hale getir; uygulama
+  // kapanıp yeniden açıldığında loadPersistedState() bunu geri okuyor.
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ numPlates, startState, movesMatrix }));
+    } catch {
+      // localStorage kapalı/kotayı aşmış olabilir — sessizce yok say.
+    }
+  }, [numPlates, startState, movesMatrix]);
+
+  // Konum/vektör değiştiğinde önceden bulunmuş çözüm artık geçerli olmayabilir
+  // (butonla veya Geri Al/Sıfırla ile — hepsi startState/movesMatrix'i değiştirir).
+  useEffect(() => {
+    setMacroSteps([]);
+    setCurrentStepIndex(-1);
+  }, [startState, movesMatrix]);
+
+  // Konum/vektör butonlarına her tıklamadan önce mevcut durumu kaydeder,
+  // "Geri Al" bu yığından son durumu geri çıkarır.
+  const pushHistory = () => {
+    setHistory(prev => [...prev, { startState, movesMatrix }].slice(-50));
+  };
+
+  const undo = () => {
+    setHistory(prev => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      setStartState(last.startState);
+      setMovesMatrix(last.movesMatrix);
+      return prev.slice(0, -1);
+    });
+  };
+
+  const resetPositionsAndVectors = () => {
+    pushHistory();
+    setStartState(new Array(numPlates).fill(0));
+    setMovesMatrix(buildIdentityMatrix(numPlates));
+    setCompletedPositions(new Set());
+    setCompletedVectors(new Set());
+  };
 
   // Makro olayları uygulama ömrü boyunca tek sefer bağlanır; her çalıştırmada
   // yeniden abone olmak (eski kod) iptal/hata durumlarında dinleyici sızdırıyordu.
@@ -228,7 +358,8 @@ function App() {
     setIsExecuting(false);
   };
 
-  const handleExecute = () => {
+  /** Çözümü hesaplayıp tuş adımlarına çevirir; makroyu ÇALIŞTIRMAZ. */
+  const computeSolutionSteps = (): MacroStep[] | null => {
     const moveNames = Array.from({length: numPlates}, (_, i) => String.fromCharCode(65 + i));
     const res = LockSolver.solve(startState, movesMatrix, moveNames);
 
@@ -236,10 +367,9 @@ function App() {
       setMacroError(res.error === 'Invalid Start State'
         ? 'Başlangıç konumları geçersiz (sınır dışı).'
         : 'Çözüm bulunamadı! Lütfen girdiğiniz vektörleri kontrol edin.');
-      return;
+      return null;
     }
 
-    // Translate solution to keystrokes
     const steps: MacroStep[] = [];
     let currentIndex = 0; // We assume the pick always starts at Plate A (index 0)
 
@@ -249,21 +379,23 @@ function App() {
       const count = move.count;
       const targetPlateName = String.fromCharCode(65 + targetIndex);
 
-      // Navigate to target plate
+      // Navigate to target plate. Oyunda B plakasına geçiş W ile yapılıyor
+      // (yani sonraki/daha derindeki plakaya W, öncekine S) — eskiden ters
+      // eşleniyordu.
       if (targetIndex > currentIndex) {
         for (let i = 0; i < targetIndex - currentIndex; i++) {
-          steps.push({ key: 's', desc: `${String.fromCharCode(65 + currentIndex + i + 1)} plakasına iniliyor...` });
+          steps.push({ key: 'w', desc: `${String.fromCharCode(65 + currentIndex + i + 1)} plakasına iniliyor...` });
         }
       } else if (targetIndex < currentIndex) {
         for (let i = 0; i < currentIndex - targetIndex; i++) {
-          steps.push({ key: 'w', desc: `${String.fromCharCode(65 + currentIndex - i - 1)} plakasına çıkılıyor...` });
+          steps.push({ key: 's', desc: `${String.fromCharCode(65 + currentIndex - i - 1)} plakasına çıkılıyor...` });
         }
       }
       currentIndex = targetIndex;
 
       // Push plate
-      const pushKey = directionStr === '+' ? 'a' : 'd';
-      const dirText = directionStr === '+' ? 'sola' : 'sağa';
+      const pushKey = directionStr === '+' ? 'd' : 'a';
+      const dirText = directionStr === '+' ? 'sağa' : 'sola';
       for (let i = 0; i < count; i++) {
         steps.push({ key: pushKey, desc: `${targetPlateName} plakası ${dirText} itiliyor...` });
       }
@@ -271,10 +403,32 @@ function App() {
 
     if (steps.length === 0) {
       setMacroError('Kilit zaten çözülmüş durumda — gönderilecek tuş yok.');
-      return;
+      return null;
     }
 
+    return steps;
+  };
+
+  /** "Çözümü Bul": adımları hesaplayıp gösterir, oyuna hiçbir tuş göndermez. */
+  const handleFindSolution = () => {
+    const steps = computeSolutionSteps();
+    if (!steps) return;
+
     setMacroSteps(steps);
+    setCurrentStepIndex(-1);
+    setMacroError(null);
+  };
+
+  /** Bulunmuş çözümü vazgeçip düzenleme ekranına dön. */
+  const clearSolution = () => {
+    setMacroSteps([]);
+    setCurrentStepIndex(-1);
+  };
+
+  /** "Otomatik Çöz": zaten bulunmuş adımları makro olarak oyuna gönderir. */
+  const handleAutoSolve = () => {
+    if (macroSteps.length === 0) return;
+
     setCurrentStepIndex(-1);
     setFocusStatus(null);
     setMacroError(null);
@@ -282,10 +436,9 @@ function App() {
 
     // Odağı oyuna vermeyi artık ana süreç üstleniyor (bkz. macro.cjs);
     // burada ayrıca beklemeye gerek yok.
-    (window as any).electronAPI?.executeMacro(steps, {
+    (window as any).electronAPI?.executeMacro(macroSteps, {
       delay: macroDelay,
-      holdTime,
-      keyScheme
+      holdTime
     });
   };
 
@@ -295,6 +448,8 @@ function App() {
       <button 
         key={displayVal}
         onClick={() => {
+          if (isSelected) return;
+          pushHistory();
           const next = [...startState];
           next[plateIndex] = displayVal;
           setStartState(next);
@@ -339,6 +494,7 @@ function App() {
         key={affectedIndex}
         disabled={isExecuting}
         onClick={() => {
+          pushHistory();
           const next = [...movesMatrix];
           const row = next[moveIndex] ? [...next[moveIndex]] : Array(numPlates).fill(0);
           if (val === 0) row[affectedIndex] = 1;
@@ -378,8 +534,10 @@ function App() {
         </div>
       )}
 
-      {/* Toggle Button (Always visible unless targeting) */}
-      {!isTargeting && (
+      {/* Toggle Button: targeting sırasında her zaman gizli; oto-gizlen
+          kurulduysa yalnızca kilit ekranı algılandığında görünür. Panelin
+          açık/kapalı durumunu değiştirmez, sadece bu butonu gösterir/gizler. */}
+      {!isTargeting && isButtonVisible && (
         <div className="absolute top-2 left-2 z-50">
           <button 
             onClick={() => {
@@ -387,9 +545,9 @@ function App() {
               (window as any).electronAPI?.setOverlayInteractive(!isPanelOpen || isTargeting);
             }}
             className={`p-3 rounded-xl border transition-all duration-300 shadow-2xl backdrop-blur-md flex items-center justify-center ${
-              isPanelOpen 
-                ? 'bg-[#08090a]/95 border-gray-700 text-gray-400 hover:bg-gray-800' 
-                : 'bg-[var(--color-neon-blue)] border-[var(--color-neon-blue)] text-black hover:bg-[var(--color-neon-blue)]/80 hover:scale-110 shadow-[0_0_20px_var(--color-neon-blue)]'
+              isPanelOpen
+                ? 'bg-[var(--color-neon-blue)] border-[var(--color-neon-blue)] text-black hover:bg-[var(--color-neon-blue)]/80 hover:scale-110 shadow-[0_0_20px_var(--color-neon-blue)]'
+                : 'bg-[#08090a]/95 border-gray-700 text-gray-400 hover:bg-gray-800'
             }`}
           >
             {isPanelOpen ? <Minus size={24} /> : <Menu size={24} />}
@@ -398,10 +556,17 @@ function App() {
       )}
 
       {/* Slide-out Control Panel */}
-      <div 
-        className={`absolute top-20 left-4 bottom-4 w-[450px] bg-[#08090a]/95 backdrop-blur-xl border border-[var(--color-neon-blue)]/20 rounded-2xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.8)] flex flex-col transition-transform duration-500 overflow-hidden ${
-          isPanelOpen ? 'translate-x-0' : '-translate-x-[120%]'
-        }`}
+      <div
+        className="absolute top-20 left-4 bottom-4 w-[450px] bg-[#08090a]/95 backdrop-blur-xl border border-[var(--color-neon-blue)]/20 rounded-2xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.8)] flex flex-col transition-transform duration-500 overflow-hidden"
+        // Tailwind'in ayrık `translate-x-*` sınıfları (Tailwind v4'te modern
+        // CSS `translate` özelliğini kullanıyor) bu Electron/Chromium
+        // yapısında güvenilmez davranış gösterdi: sınıf `translate-x-0`
+        // olarak doğru uygulansa bile hesaplanan stil eski değerde
+        // ("-120%") takılı kalabiliyordu, panel görsel olarak kapalı
+        // konumda sıkışıp içerik üst üste biniyordu. Klasik ve her yerde
+        // güvenilir olan `transform: translateX()` ile satır içi stil
+        // kullanmak bu belirsizliği tamamen ortadan kaldırıyor.
+        style={{ transform: isPanelOpen ? 'translateX(0)' : 'translateX(-120%)' }}
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-800 shrink-0">
@@ -409,19 +574,29 @@ function App() {
             KİLİT ÇÖZÜCÜ (F9)
           </h2>
           
-          <div className="flex items-center gap-2 bg-black/40 rounded-lg p-1 border border-gray-800">
-            <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest px-2">Plaka:</span>
-            <button 
-              disabled={isExecuting}
-              onClick={() => setNumPlates(Math.max(2, numPlates - 1))}
-              className="w-6 h-6 rounded flex items-center justify-center hover:bg-gray-800 transition-colors disabled:opacity-50"
-            ><ChevronLeft size={16}/></button>
-            <div className="font-mono text-sm font-bold w-4 text-center text-[var(--color-neon-pink)] drop-shadow-[0_0_5px_var(--color-neon-pink)]">{numPlates}</div>
-            <button 
-              disabled={isExecuting}
-              onClick={() => setNumPlates(Math.min(12, numPlates + 1))}
-              className="w-6 h-6 rounded flex items-center justify-center hover:bg-gray-800 transition-colors disabled:opacity-50"
-            ><ChevronRight size={16} /></button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 bg-black/40 rounded-lg p-1 border border-gray-800">
+              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest px-2">Plaka:</span>
+              <button
+                disabled={isExecuting}
+                onClick={() => setNumPlates(Math.max(2, numPlates - 1))}
+                className="w-6 h-6 rounded flex items-center justify-center hover:bg-gray-800 transition-colors disabled:opacity-50"
+              ><ChevronLeft size={16}/></button>
+              <div className="font-mono text-sm font-bold w-4 text-center text-[var(--color-neon-pink)] drop-shadow-[0_0_5px_var(--color-neon-pink)]">{numPlates}</div>
+              <button
+                disabled={isExecuting}
+                onClick={() => setNumPlates(Math.min(12, numPlates + 1))}
+                className="w-6 h-6 rounded flex items-center justify-center hover:bg-gray-800 transition-colors disabled:opacity-50"
+              ><ChevronRight size={16} /></button>
+            </div>
+
+            <button
+              title="Programdan çık"
+              onClick={() => (window as any).electronAPI?.quitApp()}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-500 hover:text-[var(--color-neon-pink)] hover:bg-[var(--color-neon-pink)]/10 border border-transparent hover:border-[var(--color-neon-pink)]/30 transition-all"
+            >
+              <Power size={16} />
+            </button>
           </div>
         </div>
 
@@ -479,25 +654,50 @@ function App() {
           <div className="flex-1 overflow-auto flex flex-col gap-8 pb-4 pr-2 custom-scrollbar">
             {/* Section 1: Initial States */}
             <div className="flex flex-col gap-4">
-              <h3 className="text-sm font-bold tracking-widest text-gray-400 uppercase">
-                1. Başlangıç Konumları
-              </h3>
-              
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold tracking-widest text-gray-400 uppercase">
+                  1. Başlangıç Konumları
+                </h3>
+                <div className="flex items-center gap-3">
+                  <button
+                    disabled={isExecuting || history.length === 0}
+                    onClick={undo}
+                    title="Son değişikliği geri al"
+                    className="flex items-center gap-1.5 text-[10px] text-gray-500 hover:text-[var(--color-neon-blue)] uppercase tracking-widest transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                  >
+                    <Undo2 size={12} />
+                    Geri Al
+                  </button>
+                  <button
+                    disabled={isExecuting}
+                    onClick={resetPositionsAndVectors}
+                    title="Konumları ve vektörleri sıfırla"
+                    className="flex items-center gap-1.5 text-[10px] text-gray-500 hover:text-[var(--color-neon-blue)] uppercase tracking-widest transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    <RotateCcw size={12} />
+                    Sıfırla
+                  </button>
+                </div>
+              </div>
+
               <div className="flex">
                 <div className="flex flex-col mr-3 gap-2">
-                  <div className="text-[9px] text-gray-500 uppercase tracking-widest h-6 flex items-end pb-1">Plaka</div>
                   {Array.from({length: numPlates}).map((_, i) => (
-                    <div key={i} className="h-10 flex items-center justify-center text-xs font-mono font-bold text-[var(--color-neon-blue)]">
+                    <button
+                      key={i}
+                      onClick={() => toggleInSet(setCompletedPositions, i)}
+                      title={completedPositions.has(i) ? 'Tamamlandı işaretini kaldır' : 'Bu plakayı tamamlandı işaretle'}
+                      className={`w-10 h-10 rounded flex items-center justify-center text-xs font-mono font-bold transition-all cursor-pointer ${
+                        completedPositions.has(i)
+                          ? 'text-emerald-400 ring-2 ring-inset ring-emerald-400/70 shadow-[0_0_8px_rgba(52,211,153,0.5)]'
+                          : 'text-[var(--color-neon-blue)] hover:ring-1 hover:ring-inset hover:ring-[var(--color-neon-blue)]/40'
+                      }`}
+                    >
                       {String.fromCharCode(65 + i)}
-                    </div>
+                    </button>
                   ))}
                 </div>
                 <div className="flex flex-col gap-2">
-                  <div className="flex gap-1 h-6 text-[9px] text-gray-500 uppercase tracking-widest items-end pb-1">
-                    {[-3, -2, -1, 0, 1, 2, 3].map(pos => (
-                      <span key={pos} className="w-10 text-center">{pos > 0 ? `+${pos}` : pos}</span>
-                    ))}
-                  </div>
                   {Array.from({length: numPlates}).map((_, i) => (
                     <div key={i} className="flex gap-1">
                       {[-3, -2, -1, 0, 1, 2, 3].map(pos => renderPositionButton(i, pos))}
@@ -521,9 +721,18 @@ function App() {
                     Hareket
                   </div>
                   {Array.from({length: numPlates}).map((_, i) => (
-                    <div key={i} className="h-10 flex items-center justify-center text-xs font-bold text-[var(--color-neon-blue)]">
+                    <button
+                      key={i}
+                      onClick={() => toggleInSet(setCompletedVectors, i)}
+                      title={completedVectors.has(i) ? 'Tamamlandı işaretini kaldır' : 'Bu plakayı tamamlandı işaretle'}
+                      className={`w-10 h-10 rounded flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${
+                        completedVectors.has(i)
+                          ? 'text-emerald-400 ring-2 ring-inset ring-emerald-400/70 shadow-[0_0_8px_rgba(52,211,153,0.5)]'
+                          : 'text-[var(--color-neon-blue)] hover:ring-1 hover:ring-inset hover:ring-[var(--color-neon-blue)]/40'
+                      }`}
+                    >
                       {String.fromCharCode(65 + i)}
-                    </div>
+                    </button>
                   ))}
                 </div>
 
@@ -594,28 +803,8 @@ function App() {
                      </div>
                    </div>
 
-                   <div className="flex items-center gap-4">
-                     <Keyboard size={16} className="text-[var(--color-neon-blue)] shrink-0" />
-                     <span className="text-[9px] text-gray-500 uppercase tracking-widest flex-1">Tuş şeması</span>
-                     <div className="flex gap-1 bg-black/40 rounded-lg p-1 border border-gray-800">
-                       {(['wasd', 'arrows'] as KeyScheme[]).map(scheme => (
-                         <button
-                           key={scheme}
-                           onClick={() => setKeyScheme(scheme)}
-                           className={`px-3 py-1 rounded text-[10px] font-mono uppercase tracking-widest transition-all ${
-                             keyScheme === scheme
-                               ? 'bg-[var(--color-neon-blue)]/20 text-[var(--color-neon-blue)] shadow-[0_0_8px_var(--color-neon-blue)_inset]'
-                               : 'text-gray-500 hover:text-gray-300'
-                           }`}
-                         >
-                           {scheme === 'wasd' ? 'W A S D' : 'Ok tuşları'}
-                         </button>
-                       ))}
-                     </div>
-                   </div>
-
                    <p className="text-[10px] text-gray-600 leading-relaxed">
-                     Tuşlar DirectInput uyumlu tarama kodlarıyla (SendInput) gönderilir.
+                     Tuşlar (W A S D) DirectInput uyumlu tarama kodlarıyla (SendInput) gönderilir.
                      Gothic tuşları atlıyorsa basılı kalma süresini, animasyona yetişemiyorsa
                      bekleme süresini artırın. Acil durdurma: <span className="text-gray-400 font-mono">Alt+X</span>.
                    </p>
@@ -643,6 +832,23 @@ function App() {
           </div>
         )}
 
+        {/* Solution Preview — Çözümü Bul ile hesaplanan adımlar, oyuna
+            henüz hiçbir tuş gönderilmeden burada listelenir. Kullanıcı
+            isterse Otomatik Çöz'e basmadan bu listeyi kendisi uygulayabilir. */}
+        {!isExecuting && macroSteps.length > 0 && (
+          <div className="mt-4 bg-black/40 border border-[var(--color-neon-blue)]/20 rounded-xl p-3 max-h-40 overflow-auto flex flex-col gap-1 font-mono text-xs shrink-0 custom-scrollbar">
+            {macroSteps.map((step, idx) => (
+              <div key={idx} className="flex items-center gap-3 text-gray-400">
+                <span className="w-6 shrink-0 text-gray-600">{idx + 1}.</span>
+                <span className="flex-1">{step.desc}</span>
+                <span className="bg-black/50 border border-gray-700 px-2 py-0.5 rounded text-[10px] uppercase">
+                  {step.key}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Action Button */}
         <div className="mt-6 pt-4 border-t border-gray-800 shrink-0 flex flex-col gap-3">
           {macroError && !isExecuting && (
@@ -661,13 +867,30 @@ function App() {
               <Square size={18} className="fill-black" />
               DURDUR (ALT+X)
             </button>
+          ) : macroSteps.length > 0 ? (
+            <div className="flex gap-3">
+              <button
+                onClick={clearSolution}
+                title="Çözümü unut, düzenlemeye dön"
+                className="shrink-0 px-4 py-4 rounded-xl border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-all flex items-center justify-center"
+              >
+                <RotateCcw size={18} />
+              </button>
+              <button
+                onClick={handleAutoSolve}
+                className="flex-1 bg-[var(--color-neon-blue)] hover:bg-[var(--color-neon-blue)]/80 text-black font-bold tracking-widest py-4 rounded-xl flex items-center justify-center gap-3 transition-all hover:scale-[1.02] shadow-[0_0_20px_rgba(0,243,255,0.3)]"
+              >
+                <Play size={18} className="fill-black" />
+                OTOMATİK ÇÖZ
+              </button>
+            </div>
           ) : (
             <button
-              onClick={handleExecute}
+              onClick={handleFindSolution}
               className="w-full bg-[var(--color-neon-blue)] hover:bg-[var(--color-neon-blue)]/80 text-black font-bold tracking-widest py-4 rounded-xl flex items-center justify-center gap-3 transition-all hover:scale-[1.02] shadow-[0_0_20px_rgba(0,243,255,0.3)]"
             >
-              <Play size={18} className="fill-black" />
-              ÇÖZÜMÜ UYGULA (AUTO-PICK)
+              <Search size={18} />
+              ÇÖZÜMÜ BUL
             </button>
           )}
         </div>

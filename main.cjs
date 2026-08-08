@@ -1,12 +1,26 @@
 const { app, BrowserWindow, ipcMain, globalShortcut, screen, desktopCapturer } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
-const { runMacro, releaseAllKeys } = require('./macro.cjs');
+const { runMacro, releaseAllKeys, runFocusGuard } = require('./macro.cjs');
 
 let overlayWindow;
 let isPanelOpen = false;
 let isTargeting = false;
+let isButtonVisible = true;
 let macroChild = null;
+let focusGuardChild = null;
+// Bekçinin en son gördüğü, overlay dışındaki ön plan penceresi (muhtemelen
+// oyun). Bekçi kapansa bile (ör. makro başlarken) burada kalıyor ki makro
+// aynı pencereyi hedefleyebilsin. Bkz. macro.cjs: buildFocusGuardScript.
+let lastKnownGameHwnd = null;
+
+/** Overlay'in native HWND'sini PowerShell'e geçirilebilecek hex string olarak döner. */
+function getOverlayHwndHex() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return null;
+  const buf = overlayWindow.getNativeWindowHandle();
+  const value = buf.length >= 8 ? buf.readBigUInt64LE(0) : BigInt(buf.readUInt32LE(0));
+  return '0x' + value.toString(16);
+}
 
 function createOverlayWindow() {
   if (overlayWindow) return;
@@ -32,6 +46,14 @@ function createOverlayWindow() {
     resizable: false,
     movable: false,
     skipTaskbar: true,
+    // Panele mouse ile tıklamak (plaka/vektör ayarlarını değiştirmek gibi)
+    // pencereyi Windows'a "aktif" olarak bildirmemeli. Odaklanabilir bir
+    // pencere tıklandığında OS klavye girdisini ona yönlendirir — bu da W/A/S/D
+    // gibi tuşları oyuna hiç ulaştırmadan yutuyordu. focusable:false ile
+    // pencere mouse tıklamalarını yine alır (setIgnoreMouseEvents ile
+    // yönetiliyor) ama hiçbir zaman klavye odağını çalmaz, dolayısıyla
+    // panel açıkken bile fiziksel klavye oyuna gitmeye devam eder.
+    focusable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: true,
@@ -73,26 +95,52 @@ ipcMain.on('set-targeting-state', (event, targeting) => {
   isTargeting = targeting;
 });
 
+ipcMain.on('set-button-visible', (event, visible) => {
+  isButtonVisible = visible;
+});
+
+// Panelin görsel konumu App.tsx'teki slide-out panel div'inin Tailwind
+// sınıflarıyla (top-20 left-4 bottom-4 w-[450px], 1rem=16px varsayımıyla)
+// BİREBİR eşleşmeli. Bu sınıflar değişirse burası da güncellenmeli —
+// aksi halde panel ile tıklama hitbox'ı birbirinden kayar.
+const PANEL_LEFT = 16;
+const PANEL_TOP = 80;
+const PANEL_WIDTH = 450;
+const PANEL_BOTTOM_MARGIN = 16;
+
 // Bulletproof OS-level mouse polling
 setInterval(() => {
   if (!overlayWindow) return;
-  
+
   const point = screen.getCursorScreenPoint();
   const winBounds = overlayWindow.getBounds();
   const relX = point.x - winBounds.x;
   const relY = point.y - winBounds.y;
-  
+
   let shouldCatch = false;
-  
-  if (isTargeting || isPanelOpen) {
+
+  if (isTargeting) {
+    // Hedefleme sırasında köşe şablonu her yerden seçilebilmeli.
     shouldCatch = true;
   } else {
-    // Hamburger button hitbox: 100x100 top-left
-    if (relX >= 0 && relX <= 100 && relY >= 0 && relY <= 100) {
-      shouldCatch = true;
-    }
+    // Hamburger button hitbox: 100x100 top-left. Only catch here while the
+    // button is actually rendered — otherwise this square is an invisible
+    // dead zone the player can't click through to the game underneath.
+    const inButtonHitbox = isButtonVisible &&
+      relX >= 0 && relX <= 100 && relY >= 0 && relY <= 100;
+
+    // Panel açıkken SADECE panelin görsel dikdörtgenini yakala — eskiden
+    // bu blok isPanelOpen olduğunda tüm pencereyi (ekranı) tıklanabilir
+    // yapıyordu, bu yüzden oyunun görünür olduğu sağ tarafa yapılan
+    // tıklamalar oyuna hiç ulaşmadan şeffaf overlay tarafından yutuluyordu.
+    const panelHeight = winBounds.height - PANEL_TOP - PANEL_BOTTOM_MARGIN;
+    const inPanelHitbox = isPanelOpen &&
+      relX >= PANEL_LEFT && relX <= PANEL_LEFT + PANEL_WIDTH &&
+      relY >= PANEL_TOP && relY <= PANEL_TOP + panelHeight;
+
+    shouldCatch = inButtonHitbox || inPanelHitbox;
   }
-  
+
   if (shouldCatch) {
     if (!overlayWindow.isCatching) {
       overlayWindow.setIgnoreMouseEvents(false);
@@ -135,8 +183,14 @@ ipcMain.on('execute-macro', (event, steps, options = {}) => {
     overlayWindow.blur();
   }
 
+  // Bekçi de aynı ALT-tap + SetForegroundWindow numarasını kullanıyor;
+  // makro ile aynı anda koşarsa fiziksel ALT tuşu iki süreçten üst üste
+  // gönderilip zamanlamayı bozabilir. Makro kendi odak mantığını zaten
+  // yürütüyor, bekçiye burada gerek yok.
+  stopFocusGuard();
+
   try {
-    const { child } = runMacro(steps, { ...options, excludePid: process.pid }, {
+    const { child } = runMacro(steps, { ...options, excludePid: process.pid, knownHwnd: lastKnownGameHwnd }, {
       onStep: (index) => event.sender.send('macro-step', index),
       onFocus: (status) => event.sender.send('macro-focus', status),
       onFinished: (info) => {
@@ -152,6 +206,29 @@ ipcMain.on('execute-macro', (event, steps, options = {}) => {
 
 ipcMain.on('cancel-macro', () => {
   stopMacro('Kullanıcı tarafından durduruldu.');
+});
+
+function stopFocusGuard() {
+  if (!focusGuardChild) return;
+  const child = focusGuardChild;
+  focusGuardChild = null;
+  spawn('taskkill', ['/pid', String(child.pid), '/f', '/t'], { windowsHide: true });
+}
+
+// Panel açıkken (ve makro/hedefleme sürmüyorken) oyunun ön plan durumunu
+// sürekli geri kazandıran bekçi süreci. Bkz. macro.cjs: buildFocusGuardScript.
+ipcMain.on('start-focus-guard', () => {
+  if (focusGuardChild) return;
+  focusGuardChild = runFocusGuard(
+    { excludePid: process.pid, ourHwnd: getOverlayHwndHex() },
+    { onLastForeground: (hwndHex) => { lastKnownGameHwnd = hwndHex; } }
+  );
+});
+
+ipcMain.on('stop-focus-guard', stopFocusGuard);
+
+ipcMain.on('quit-app', () => {
+  app.quit();
 });
 
 ipcMain.handle('get-desktop-source-id', async () => {
@@ -194,6 +271,7 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   // Çıkarken makro çalışıyorsa tuşlar basılı kalmasın.
   stopMacro('Uygulama kapatıldı.');
+  stopFocusGuard();
 });
 
 app.on('window-all-closed', () => {
