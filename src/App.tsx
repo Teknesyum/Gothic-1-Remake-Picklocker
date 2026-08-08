@@ -1,10 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
-import { Play, ArrowRight, ArrowLeftRight, Circle, ChevronLeft, ChevronRight, Terminal, Clock, Crosshair, Menu, Minus } from 'lucide-react';
+import { Play, ArrowRight, ArrowLeftRight, Circle, ChevronLeft, ChevronRight, Terminal, Clock, Crosshair, Menu, Minus, Square, Timer, Keyboard, AlertTriangle } from 'lucide-react';
 import { LockSolver } from './LockSolver';
 
 type MacroStep = {
   key: string;
   desc: string;
+};
+
+type KeyScheme = 'wasd' | 'arrows';
+
+type MacroResult = {
+  ok: boolean;
+  cancelled?: boolean;
+  error?: string;
 };
 
 function App() {
@@ -20,7 +28,11 @@ function App() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [macroSteps, setMacroSteps] = useState<MacroStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(-1);
-  const [macroDelay, setMacroDelay] = useState(300);
+  const [macroDelay, setMacroDelay] = useState(250);
+  const [holdTime, setHoldTime] = useState(60);
+  const [keyScheme, setKeyScheme] = useState<KeyScheme>('wasd');
+  const [focusStatus, setFocusStatus] = useState<string | null>(null);
+  const [macroError, setMacroError] = useState<string | null>(null);
 
   // Auto-Hide State
   const [isTargeting, setIsTargeting] = useState(false);
@@ -181,12 +193,49 @@ function App() {
     });
   }, [numPlates]);
 
+  // Makro olayları uygulama ömrü boyunca tek sefer bağlanır; her çalıştırmada
+  // yeniden abone olmak (eski kod) iptal/hata durumlarında dinleyici sızdırıyordu.
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    if (!api) {
+      setMacroError('electronAPI bulunamadı — preload yüklenmemiş.');
+      return;
+    }
+
+    const offStep = api.onMacroStep?.((idx: number) => setCurrentStepIndex(idx));
+    const offFocus = api.onMacroFocus?.((status: string) => setFocusStatus(status));
+    const offFinished = api.onMacroFinished?.((info: MacroResult = { ok: true }) => {
+      setIsExecuting(false);
+      if (info && !info.ok && info.error) {
+        setMacroError(info.cancelled ? null : info.error);
+      }
+    });
+    const offAbort = api.onMacroAbort?.(() => {
+      setIsExecuting(false);
+      setMacroError('Makro durduruldu (Alt+X).');
+    });
+
+    return () => {
+      offStep?.();
+      offFocus?.();
+      offFinished?.();
+      offAbort?.();
+    };
+  }, []);
+
+  const handleStop = () => {
+    (window as any).electronAPI?.cancelMacro();
+    setIsExecuting(false);
+  };
+
   const handleExecute = () => {
     const moveNames = Array.from({length: numPlates}, (_, i) => String.fromCharCode(65 + i));
     const res = LockSolver.solve(startState, movesMatrix, moveNames);
-    
+
     if (!res.success) {
-      alert("Çözüm bulunamadı! Lütfen girdiğiniz vektörleri kontrol edin.");
+      setMacroError(res.error === 'Invalid Start State'
+        ? 'Başlangıç konumları geçersiz (sınır dışı).'
+        : 'Çözüm bulunamadı! Lütfen girdiğiniz vektörleri kontrol edin.');
       return;
     }
 
@@ -220,22 +269,24 @@ function App() {
       }
     }
 
+    if (steps.length === 0) {
+      setMacroError('Kilit zaten çözülmüş durumda — gönderilecek tuş yok.');
+      return;
+    }
+
     setMacroSteps(steps);
     setCurrentStepIndex(-1);
+    setFocusStatus(null);
+    setMacroError(null);
     setIsExecuting(true);
-    
-    // Give user 1 second to make sure game is active if needed, then execute
-    setTimeout(() => {
-      const cleanupStep = (window as any).electronAPI?.onMacroStep((idx: number) => {
-        setCurrentStepIndex(idx);
-      });
-      const cleanupFinished = (window as any).electronAPI?.onMacroFinished(() => {
-        setIsExecuting(false);
-        cleanupStep && cleanupStep();
-        cleanupFinished && cleanupFinished();
-      });
-      (window as any).electronAPI?.executeMacro(steps, macroDelay);
-    }, 1000);
+
+    // Odağı oyuna vermeyi artık ana süreç üstleniyor (bkz. macro.cjs);
+    // burada ayrıca beklemeye gerek yok.
+    (window as any).electronAPI?.executeMacro(steps, {
+      delay: macroDelay,
+      holdTime,
+      keyScheme
+    });
   };
 
   const renderPositionButton = (plateIndex: number, displayVal: number) => {
@@ -382,7 +433,21 @@ function App() {
                 <h3 className="font-mono font-bold tracking-widest uppercase drop-shadow-[0_0_5px_var(--color-neon-pink)]">
                   Çözüm Uygulanıyor...
                 </h3>
+                <span className="ml-auto font-mono text-xs text-gray-500">
+                  {Math.max(0, currentStepIndex + 1)}/{macroSteps.length}
+                </span>
              </div>
+
+             {(focusStatus === 'none' || focusStatus === 'fail') && (
+               <div className="flex items-start gap-2 text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                 <AlertTriangle size={14} className="shrink-0 mt-px" />
+                 <span>
+                   {focusStatus === 'none'
+                     ? 'Gothic penceresi bulunamadı — tuşlar o an ön planda olan pencereye gidiyor.'
+                     : 'Oyun penceresine odak verilemedi — tuşlar oyuna ulaşmayabilir.'}
+                 </span>
+               </div>
+             )}
              <div className="flex-1 bg-black/50 border border-gray-800 rounded-xl p-4 overflow-hidden relative">
                <div className="absolute inset-0 overflow-hidden flex flex-col gap-1 p-4 font-mono text-xs">
                  {macroSteps.map((step, idx) => {
@@ -488,22 +553,72 @@ function App() {
               {/* Section 3: Macro Settings */}
               <div className="flex flex-col gap-4">
                 <h3 className="text-sm font-bold tracking-widest text-gray-400 uppercase">
-                  3. Gecikme Hızı (Delay)
+                  3. Makro Zamanlaması
                 </h3>
-                <div className="flex items-center gap-4 bg-black/20 p-4 rounded-xl border border-gray-800/50">
-                   <Clock size={16} className="text-[var(--color-neon-blue)]" />
-                   <input 
-                     type="range" 
-                     min="100" 
-                     max="1000" 
-                     step="50"
-                     value={macroDelay}
-                     onChange={(e) => setMacroDelay(parseInt(e.target.value))}
-                     className="flex-1 accent-[var(--color-neon-blue)] h-1 bg-gray-700 rounded-full appearance-none outline-none"
-                   />
-                   <div className="w-16 text-right font-mono text-sm text-[var(--color-neon-pink)] drop-shadow-[0_0_3px_var(--color-neon-pink)]">
-                     {macroDelay}ms
+                <div className="flex flex-col gap-4 bg-black/20 p-4 rounded-xl border border-gray-800/50">
+                   <div className="flex items-center gap-4">
+                     <Clock size={16} className="text-[var(--color-neon-blue)] shrink-0" />
+                     <div className="flex-1 flex flex-col gap-1">
+                       <span className="text-[9px] text-gray-500 uppercase tracking-widest">Tuşlar arası bekleme</span>
+                       <input
+                         type="range"
+                         min="50"
+                         max="1000"
+                         step="10"
+                         value={macroDelay}
+                         onChange={(e) => setMacroDelay(parseInt(e.target.value))}
+                         className="w-full accent-[var(--color-neon-blue)] h-1 bg-gray-700 rounded-full appearance-none outline-none"
+                       />
+                     </div>
+                     <div className="w-16 text-right font-mono text-sm text-[var(--color-neon-pink)] drop-shadow-[0_0_3px_var(--color-neon-pink)]">
+                       {macroDelay}ms
+                     </div>
                    </div>
+
+                   <div className="flex items-center gap-4">
+                     <Timer size={16} className="text-[var(--color-neon-blue)] shrink-0" />
+                     <div className="flex-1 flex flex-col gap-1">
+                       <span className="text-[9px] text-gray-500 uppercase tracking-widest">Tuş basılı kalma süresi</span>
+                       <input
+                         type="range"
+                         min="20"
+                         max="250"
+                         step="5"
+                         value={holdTime}
+                         onChange={(e) => setHoldTime(parseInt(e.target.value))}
+                         className="w-full accent-[var(--color-neon-blue)] h-1 bg-gray-700 rounded-full appearance-none outline-none"
+                       />
+                     </div>
+                     <div className="w-16 text-right font-mono text-sm text-[var(--color-neon-pink)] drop-shadow-[0_0_3px_var(--color-neon-pink)]">
+                       {holdTime}ms
+                     </div>
+                   </div>
+
+                   <div className="flex items-center gap-4">
+                     <Keyboard size={16} className="text-[var(--color-neon-blue)] shrink-0" />
+                     <span className="text-[9px] text-gray-500 uppercase tracking-widest flex-1">Tuş şeması</span>
+                     <div className="flex gap-1 bg-black/40 rounded-lg p-1 border border-gray-800">
+                       {(['wasd', 'arrows'] as KeyScheme[]).map(scheme => (
+                         <button
+                           key={scheme}
+                           onClick={() => setKeyScheme(scheme)}
+                           className={`px-3 py-1 rounded text-[10px] font-mono uppercase tracking-widest transition-all ${
+                             keyScheme === scheme
+                               ? 'bg-[var(--color-neon-blue)]/20 text-[var(--color-neon-blue)] shadow-[0_0_8px_var(--color-neon-blue)_inset]'
+                               : 'text-gray-500 hover:text-gray-300'
+                           }`}
+                         >
+                           {scheme === 'wasd' ? 'W A S D' : 'Ok tuşları'}
+                         </button>
+                       ))}
+                     </div>
+                   </div>
+
+                   <p className="text-[10px] text-gray-600 leading-relaxed">
+                     Tuşlar DirectInput uyumlu tarama kodlarıyla (SendInput) gönderilir.
+                     Gothic tuşları atlıyorsa basılı kalma süresini, animasyona yetişemiyorsa
+                     bekleme süresini artırın. Acil durdurma: <span className="text-gray-400 font-mono">Alt+X</span>.
+                   </p>
                 </div>
               </div>
               {/* Section 4: Auto-Hide */}
@@ -529,17 +644,33 @@ function App() {
         )}
 
         {/* Action Button */}
-        {!isExecuting && (
-          <div className="mt-6 pt-4 border-t border-gray-800 shrink-0">
-            <button 
+        <div className="mt-6 pt-4 border-t border-gray-800 shrink-0 flex flex-col gap-3">
+          {macroError && !isExecuting && (
+            <div className="flex items-start gap-2 text-[11px] text-[var(--color-neon-pink)] bg-[var(--color-neon-pink)]/10 border border-[var(--color-neon-pink)]/30 rounded-lg p-3">
+              <AlertTriangle size={14} className="shrink-0 mt-px" />
+              <span className="flex-1">{macroError}</span>
+              <button onClick={() => setMacroError(null)} className="text-gray-500 hover:text-gray-300">✕</button>
+            </div>
+          )}
+
+          {isExecuting ? (
+            <button
+              onClick={handleStop}
+              className="w-full bg-[var(--color-neon-pink)] hover:bg-[var(--color-neon-pink)]/80 text-black font-bold tracking-widest py-4 rounded-xl flex items-center justify-center gap-3 transition-all hover:scale-[1.02] shadow-[0_0_20px_rgba(255,0,128,0.3)]"
+            >
+              <Square size={18} className="fill-black" />
+              DURDUR (ALT+X)
+            </button>
+          ) : (
+            <button
               onClick={handleExecute}
               className="w-full bg-[var(--color-neon-blue)] hover:bg-[var(--color-neon-blue)]/80 text-black font-bold tracking-widest py-4 rounded-xl flex items-center justify-center gap-3 transition-all hover:scale-[1.02] shadow-[0_0_20px_rgba(0,243,255,0.3)]"
             >
               <Play size={18} className="fill-black" />
               ÇÖZÜMÜ UYGULA (AUTO-PICK)
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

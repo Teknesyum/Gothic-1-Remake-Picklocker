@@ -15,6 +15,14 @@ export class LockSolver {
     static readonly REVERSE_DISPLAY_SIGN = true;
     static readonly OPTIMIZE_GROUPS = true;
 
+    /**
+     * Arama bütçeleri. Durum uzayı plaka sayısıyla üstel büyür (12 plaka için
+     * 7^12 ≈ 1.4e10); sınır olmadan BFS arayüzü kilitler ve belleği tüketir.
+     * Bütçe aşılırsa çözüm "bulunamadı" olarak döner — donmaktansa bu iyidir.
+     */
+    static readonly MAX_BFS_STATES = 2_000_000;
+    static readonly MAX_DP_NODES = 200_000;
+
     static getMoveName(index: number, dir: number, moveNames: string[]): string {
         let sign = '';
         if (LockSolver.REVERSE_DISPLAY_SIGN) {
@@ -71,11 +79,19 @@ export class LockSolver {
         queue.push({ values: [...start], parent: null, moveIndex: -1, dir: 0 });
         visited.add(LockSolver.stateKey(start));
 
-        while (queue.length > 0) {
-            const current = queue.shift()!;
+        // Array.shift() bağlantılı listede O(n)'dir; büyük kuyruklarda BFS'i
+        // tek başına ikinci dereceden yavaşlatır. Bunun yerine okuma imleci.
+        let head = 0;
+
+        while (head < queue.length) {
+            const current = queue[head++];
 
             if (LockSolver.isGoal(current.values)) {
                 return LockSolver.extractMoves(current, moveNames);
+            }
+
+            if (visited.size > LockSolver.MAX_BFS_STATES) {
+                return null;
             }
 
             for (let move = 0; move < movesMatrix.length; move++) {
@@ -139,8 +155,10 @@ export class LockSolver {
 
         const memo = new Map<string, DPResult>();
 
-        const best = LockSolver.searchBest([...start], counts, types, -1, memo, movesMatrix);
+        const best = LockSolver.searchBest([...start], counts, types, -1, memo, movesMatrix, { nodes: 0 });
 
+        // Bütçe tükenirse veya sıralama bulunamazsa BFS'in ürettiği sıra
+        // zaten geçerli bir çözümdür; sadece grup sayısı optimal olmaz.
         if (!best) return original;
 
         const result: Move[] = [];
@@ -157,13 +175,18 @@ export class LockSolver {
         types: Move[],
         lastType: number,
         memo: Map<string, DPResult>,
-        movesMatrix: number[][]
+        movesMatrix: number[][],
+        budget: { nodes: number } = { nodes: 0 }
     ): DPResult | null {
         let total = 0;
         for (const x of remaining) total += x;
 
         if (total === 0) {
             return { groups: 0, order: [] };
+        }
+
+        if (++budget.nodes > LockSolver.MAX_DP_NODES) {
+            return null;
         }
 
         const key = current.join(',') + '|' + remaining.join(',') + '|' + lastType;
@@ -192,7 +215,7 @@ export class LockSolver {
             if (!LockSolver.isValid(next)) continue;
 
             remaining[type]--;
-            const rest = LockSolver.searchBest(next, remaining, types, type, memo, movesMatrix);
+            const rest = LockSolver.searchBest(next, remaining, types, type, memo, movesMatrix, budget);
             remaining[type]++;
 
             if (!rest) continue;

@@ -1,11 +1,12 @@
 const { app, BrowserWindow, ipcMain, globalShortcut, screen, desktopCapturer } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
+const { runMacro, releaseAllKeys } = require('./macro.cjs');
 
 let overlayWindow;
-let clickRegions = [];
 let isPanelOpen = false;
 let isTargeting = false;
+let macroChild = null;
 
 function createOverlayWindow() {
   if (overlayWindow) return;
@@ -43,11 +44,7 @@ function createOverlayWindow() {
 }
 
 
-function updateMousePolicy() {
-  // Driven by interval now
-}
-
-ipcMain.on('overlay:set-interactive', (event, enabled) => {
+ipcMain.on('overlay:set-interactive', () => {
   // Still keep this for compatibility, but the interval handles real logic
 });
 
@@ -92,28 +89,52 @@ setInterval(() => {
   }
 }, 30);
 
-ipcMain.on('execute-macro', (event, steps, delay = 300) => {
-  let psScript = 'Add-Type -AssemblyName System.Windows.Forms;\n';
-  steps.forEach((step, index) => {
-    psScript += `Write-Host "STEP:${index}";\n`;
-    let sendKey = step.key.toLowerCase();
-    psScript += `[System.Windows.Forms.SendKeys]::SendWait("{${sendKey}}");\n`;
-    psScript += `Start-Sleep -Milliseconds ${delay};\n`;
-  });
-  
-  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psScript]);
-  
-  child.stdout.on('data', (data) => {
-    const output = data.toString();
-    const match = output.match(/STEP:(\d+)/);
-    if (match) {
-      event.sender.send('macro-step', parseInt(match[1], 10));
-    }
-  });
+function stopMacro(reason) {
+  if (!macroChild) return false;
+  const child = macroChild;
+  macroChild = null;
+  // PowerShell alt süreçleriyle birlikte öldür; sonra basılı kalmış
+  // olabilecek tuşları serbest bırak.
+  spawn('taskkill', ['/pid', String(child.pid), '/f', '/t'], { windowsHide: true });
+  releaseAllKeys();
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.webContents.send('macro-finished', { ok: false, cancelled: true, error: reason });
+  }
+  return true;
+}
 
-  child.on('close', () => {
-    event.sender.send('macro-finished');
-  });
+ipcMain.on('execute-macro', (event, steps, options = {}) => {
+  if (macroChild) {
+    event.sender.send('macro-finished', { ok: false, error: 'Zaten çalışan bir makro var.' });
+    return;
+  }
+  if (!Array.isArray(steps) || steps.length === 0) {
+    event.sender.send('macro-finished', { ok: false, error: 'Gönderilecek adım yok.' });
+    return;
+  }
+
+  // Overlay odağı bırakmazsa tuşlar oyuna değil bize gider.
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.blur();
+  }
+
+  try {
+    const { child } = runMacro(steps, { ...options, excludePid: process.pid }, {
+      onStep: (index) => event.sender.send('macro-step', index),
+      onFocus: (status) => event.sender.send('macro-focus', status),
+      onFinished: (info) => {
+        if (macroChild === child) macroChild = null;
+        event.sender.send('macro-finished', info);
+      }
+    });
+    macroChild = child;
+  } catch (err) {
+    event.sender.send('macro-finished', { ok: false, error: err.message });
+  }
+});
+
+ipcMain.on('cancel-macro', () => {
+  stopMacro('Kullanıcı tarafından durduruldu.');
 });
 
 ipcMain.handle('get-desktop-source-id', async () => {
@@ -136,11 +157,26 @@ app.whenReady().then(() => {
   globalShortcut.register('CommandOrControl+Space', toggleFn);
   globalShortcut.register('Alt+Z', toggleFn);
 
+  // Acil durdurma: makro yanlış gidiyorsa oyuna dokunmadan kesebilmek gerek.
+  const abortFn = () => {
+    if (stopMacro('Acil durdurma (Alt+X).') && overlayWindow) {
+      overlayWindow.webContents.send('macro-abort');
+    }
+  };
+  globalShortcut.register('Alt+X', abortFn);
+  globalShortcut.register('F8', abortFn);
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createOverlayWindow();
     }
   });
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  // Çıkarken makro çalışıyorsa tuşlar basılı kalmasın.
+  stopMacro('Uygulama kapatıldı.');
 });
 
 app.on('window-all-closed', () => {

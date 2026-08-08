@@ -5,16 +5,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setOverlayInteractive: (enabled) => ipcRenderer.send('overlay:set-interactive', enabled),
   setPanelState: (isOpen) => ipcRenderer.send('set-panel-state', isOpen),
   setTargetingState: (targeting) => ipcRenderer.send('set-targeting-state', targeting),
-  executeMacro: (steps, delay) => ipcRenderer.send('execute-macro', steps, delay),
+  executeMacro: (steps, options) => ipcRenderer.send('execute-macro', steps, options),
+  cancelMacro: () => ipcRenderer.send('cancel-macro'),
   onMacroStep: (callback) => {
-    const handler = (_event: any, stepIndex: number) => callback(stepIndex);
+    const handler = (_event, stepIndex) => callback(stepIndex);
     ipcRenderer.on('macro-step', handler);
     return () => ipcRenderer.removeListener('macro-step', handler);
   },
   onMacroFinished: (callback) => {
-    const handler = () => callback();
+    const handler = (_event, info) => callback(info);
     ipcRenderer.on('macro-finished', handler);
     return () => ipcRenderer.removeListener('macro-finished', handler);
+  },
+  onMacroFocus: (callback) => {
+    const handler = (_event, status) => callback(status);
+    ipcRenderer.on('macro-focus', handler);
+    return () => ipcRenderer.removeListener('macro-focus', handler);
+  },
+  onMacroAbort: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('macro-abort', handler);
+    return () => ipcRenderer.removeListener('macro-abort', handler);
   },
   onTogglePanel: (callback) => {
     const handler = () => callback();

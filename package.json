@@ -1,7 +1,10 @@
 {
   "name": "gothic1lockpicker",
+  "productName": "Gothic 1 LockPicker",
+  "description": "Gothic 1 kilit açma mini oyunu için şeffaf çözücü overlay",
+  "author": "Administrator",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "main": "main.cjs",
   "scripts": {
@@ -9,7 +12,41 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dist": "npm run build && electron-builder --win portable",
+    "dist:installer": "npm run build && electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "com.gothic1.lockpicker",
+    "productName": "Gothic1LockPicker",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "macro.cjs",
+      "dist/**/*",
+      "package.json",
+      "!node_modules/**/*"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "artifactName": "Gothic1LockPicker-${version}-portable.${ext}"
+    },
+    "portable": {
+      "artifactName": "Gothic1LockPicker-${version}-portable.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Gothic1LockPicker-${version}-setup.${ext}"
+    }
   },
   "dependencies": {
     "@google/genai": "^2.16.0",
@@ -33,6 +70,7 @@
     "oxlint": "^1.75.0",
     "typescript": "~6.0.2",
     "vite": "^8.2.0",
+    "vitest": "^4.1.10",
     "wait-on": "^9.1.0"
   }
 }
