@@ -324,6 +324,11 @@ app.whenReady().then(() => {
   createOverlayWindow();
   checkForUpdates();
 
+  // Bir önceki süreç düzgün kapanmadıysa (ör. taskkill ile zorla sonlandırma)
+  // kısayollar bazen eski PID'e takılı kalabiliyor; yeniden kaydetmeden önce
+  // temizle ki F9 sessizce başarısız olmasın.
+  globalShortcut.unregisterAll();
+
   // Bind multiple hotkeys in case the game blocks one
   const toggleFn = () => {
     if (overlayWindow) overlayWindow.webContents.send('overlay:toggle');

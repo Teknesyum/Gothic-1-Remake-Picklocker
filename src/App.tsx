@@ -211,7 +211,17 @@ function App() {
   // ortaya çıkan butona tıklamaktır.
   const [passiveMode, setPassiveMode] = useState(() => loadPersistedSettings()?.passiveMode ?? false);
   const [isCornerHovered, setIsCornerHovered] = useState(false);
-  const isToggleButtonVisible = isButtonVisible && (!passiveMode || isPanelOpen || isCornerHovered);
+  // ÖNEMLİ: panel açıkken veya fare köşedeyken buton HER ZAMAN görünür —
+  // bunlar Auto Mod'un anlık algılama durumundan (isButtonVisible) bağımsız
+  // olmalı. Eskiden `isButtonVisible && (...)` şeklindeydi; Auto Mod
+  // kurulu ama o an algılamıyorsa isButtonVisible false oluyordu ve bu,
+  // panel açık ya da fare tam köşedeyken bile butonu görünmez kılıp
+  // kullanıcıyı F9 dışında hiçbir yolla geri getirilemez bırakıyordu —
+  // özellikle Pasif Mod'da "program hiç gözükmüyor" diye bildirilen sorun buydu.
+  const isToggleButtonVisible =
+    isPanelOpen ||
+    isCornerHovered ||
+    (!passiveMode && isButtonVisible);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
