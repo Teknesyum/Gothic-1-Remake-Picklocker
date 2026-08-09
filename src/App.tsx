@@ -114,6 +114,8 @@ type PersistedSettings = {
   resetDelay: number;
   sendSpaceAfterSolve: boolean;
   spaceDelay: number;
+  macroDelay: number;
+  holdTime: number;
 };
 
 const SETTINGS_STORAGE_KEY = 'g1lockpicker.settings.v1';
@@ -176,8 +178,8 @@ function App() {
   const completedHamleCount = macroSteps
     .slice(0, Math.max(0, currentStepIndex + 1))
     .filter(s => s.kind === 'push').length;
-  const [macroDelay, setMacroDelay] = useState(250);
-  const [holdTime, setHoldTime] = useState(60);
+  const [macroDelay, setMacroDelay] = useState(() => loadPersistedSettings()?.macroDelay ?? 250);
+  const [holdTime, setHoldTime] = useState(() => loadPersistedSettings()?.holdTime ?? 60);
   // R (sıfırlama) tuşundan sonra, oyunun kilidi gerçekten sıfırlaması için
   // normal adım aralığının üstüne eklenen ekstra bekleme.
   const [resetDelay, setResetDelay] = useState(() => loadPersistedSettings()?.resetDelay ?? 0);
@@ -402,20 +404,28 @@ function App() {
     (window as any).electronAPI?.setOverlayInteractive(true);
   };
 
+  // Plaka sayısı azaltılıp sonra tekrar artırılınca kenardaki (ör. F)
+  // konum/vektör verisi unutulmasın diye dizileri KISALTMIYORUZ — sadece
+  // gerektiğinde büyütüyoruz. Fazladan "gizli" kuyruk verisi zararsız
+  // şekilde saklanır; hesaplama sırasında computeSolutionSteps zaten
+  // sadece ilk `numPlates` elemanı kullanıyor.
   useEffect(() => {
     setStartState(prev => {
+      if (prev.length >= numPlates) return prev;
       const next = [...prev];
-      while(next.length < numPlates) next.push(0);
-      return next.slice(0, numPlates);
+      while (next.length < numPlates) next.push(0);
+      return next;
     });
 
     setMovesMatrix(prev => {
+      const size = Math.max(numPlates, prev.length, ...prev.map(row => row.length));
+      if (prev.length >= size && prev.every(row => row.length >= size)) return prev;
       const next = [];
-      for (let i = 0; i < numPlates; i++) {
-        const row = prev[i] ? [...prev[i]] : Array(numPlates).fill(0);
-        while(row.length < numPlates) row.push(0);
+      for (let i = 0; i < size; i++) {
+        const row = prev[i] ? [...prev[i]] : [];
+        while (row.length < size) row.push(0);
         if (!prev[i]) row[i] = 1;
-        next.push(row.slice(0, numPlates));
+        next.push(row);
       }
       return next;
     });
@@ -436,15 +446,22 @@ function App() {
     }
   }, [numPlates, startState, movesMatrix]);
 
-  // Pasif Mod ve tuş gecikme ayarları da kalıcı — kapanış sonrası hatırlanır.
+  // Pasif Mod ve tüm zaman ayarları da kalıcı — kapanış sonrası hatırlanır.
   useEffect(() => {
     try {
-      const settings: PersistedSettings = { passiveMode, resetDelay, sendSpaceAfterSolve, spaceDelay };
+      const settings: PersistedSettings = {
+        passiveMode,
+        resetDelay,
+        sendSpaceAfterSolve,
+        spaceDelay,
+        macroDelay,
+        holdTime
+      };
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
     } catch {
       // localStorage kapalı/kotayı aşmış olabilir — sessizce yok say.
     }
-  }, [passiveMode, resetDelay, sendSpaceAfterSolve, spaceDelay]);
+  }, [passiveMode, resetDelay, sendSpaceAfterSolve, spaceDelay, macroDelay, holdTime]);
 
   // Konum/vektör değiştiğinde önceden bulunmuş çözüm artık geçerli olmayabilir
   // (butonla veya Geri Al/Sıfırla ile — hepsi startState/movesMatrix'i değiştirir).
@@ -556,7 +573,12 @@ function App() {
   /** Çözümü hesaplayıp hem kısa özete hem tuş adımlarına çevirir; makroyu ÇALIŞTIRMAZ. */
   const computeSolutionSteps = (): { steps: MacroStep[]; compressed: CompressedMove[] } | null => {
     const moveNames = Array.from({length: numPlates}, (_, i) => String.fromCharCode(65 + i));
-    const res = LockSolver.solve(startState, movesMatrix, moveNames);
+    // startState/movesMatrix, plaka sayısı azaltılıp artırılınca kenar
+    // verisi unutulmasın diye numPlates'ten uzun kalabiliyor (gizli kuyruk) —
+    // çözücüye yalnızca şu an aktif olan ilk numPlates eleman gidiyor.
+    const activeStart = startState.slice(0, numPlates);
+    const activeMatrix = movesMatrix.slice(0, numPlates).map(row => row.slice(0, numPlates));
+    const res = LockSolver.solve(activeStart, activeMatrix, moveNames);
 
     if (!res.success) {
       setMacroError(res.error === 'Invalid Start State'
