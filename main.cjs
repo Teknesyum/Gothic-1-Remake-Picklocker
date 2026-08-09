@@ -234,6 +234,18 @@ ipcMain.on('cancel-macro', () => {
   stopMacro('Kullanıcı tarafından durduruldu.');
 });
 
+// Ana makro akışından tamamen bağımsız, "ateşle ve unut" tek tuş gönderimi
+// (ör. kilit açıldıktan sonra isteğe bağlı Space). macroChild/isExecuting'e
+// dokunmuyor, kendi 'macro-finished' event zincirine de girmiyor — aksi
+// halde "Kilit Açıldı" kutlaması ikinci kez tetiklenirdi.
+ipcMain.on('send-key', (event, key, options = {}) => {
+  try {
+    runMacro([{ key }], { ...options, excludePid: process.pid, knownHwnd: lastKnownGameHwnd }, {});
+  } catch {
+    // Sessiz yan-eylem: başarısız olursa kullanıcıya ayrıca bildirmiyoruz.
+  }
+});
+
 function stopFocusGuard() {
   if (!focusGuardChild) return;
   const child = focusGuardChild;

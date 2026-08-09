@@ -109,6 +109,26 @@ function loadPersistedState(): PersistedState | null {
   }
 }
 
+type PersistedSettings = {
+  passiveMode: boolean;
+  resetDelay: number;
+  sendSpaceAfterSolve: boolean;
+  spaceDelay: number;
+};
+
+const SETTINGS_STORAGE_KEY = 'g1lockpicker.settings.v1';
+
+/** Pasif Mod ve tuş gecikme ayarları da kapanış sonrası hatırlanır. */
+function loadPersistedSettings(): Partial<PersistedSettings> | null {
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as Partial<PersistedSettings>;
+  } catch {
+    return null;
+  }
+}
+
 function App() {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [numPlates, setNumPlates] = useState(() => loadPersistedState()?.numPlates ?? 6);
@@ -158,6 +178,15 @@ function App() {
     .filter(s => s.kind === 'push').length;
   const [macroDelay, setMacroDelay] = useState(250);
   const [holdTime, setHoldTime] = useState(60);
+  // R (sıfırlama) tuşundan sonra, oyunun kilidi gerçekten sıfırlaması için
+  // normal adım aralığının üstüne eklenen ekstra bekleme.
+  const [resetDelay, setResetDelay] = useState(() => loadPersistedSettings()?.resetDelay ?? 0);
+  // Kilit açıldıktan sonra isteğe bağlı olarak Space gönderilsin mi ve
+  // ne kadar beklendikten sonra.
+  const [sendSpaceAfterSolve, setSendSpaceAfterSolve] = useState(
+    () => loadPersistedSettings()?.sendSpaceAfterSolve ?? false
+  );
+  const [spaceDelay, setSpaceDelay] = useState(() => loadPersistedSettings()?.spaceDelay ?? 0);
   const [focusStatus, setFocusStatus] = useState<string | null>(null);
   const [macroError, setMacroError] = useState<string | null>(null);
   // null = kutlama yok; 3,2,1,0 -> panel otomatik küçülüyor.
@@ -180,7 +209,7 @@ function App() {
   // tam o 100x100 köşeye gelince tekrar görünür/tıklanabilir olur. Açmanın
   // tek yolları F9 (global kısayol, her zaman çalışır) ya da bu şekilde
   // ortaya çıkan butona tıklamaktır.
-  const [passiveMode, setPassiveMode] = useState(false);
+  const [passiveMode, setPassiveMode] = useState(() => loadPersistedSettings()?.passiveMode ?? false);
   const [isCornerHovered, setIsCornerHovered] = useState(false);
   const isToggleButtonVisible = isButtonVisible && (!passiveMode || isPanelOpen || isCornerHovered);
 
@@ -397,6 +426,16 @@ function App() {
     }
   }, [numPlates, startState, movesMatrix]);
 
+  // Pasif Mod ve tuş gecikme ayarları da kalıcı — kapanış sonrası hatırlanır.
+  useEffect(() => {
+    try {
+      const settings: PersistedSettings = { passiveMode, resetDelay, sendSpaceAfterSolve, spaceDelay };
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    } catch {
+      // localStorage kapalı/kotayı aşmış olabilir — sessizce yok say.
+    }
+  }, [passiveMode, resetDelay, sendSpaceAfterSolve, spaceDelay]);
+
   // Konum/vektör değiştiğinde önceden bulunmuş çözüm artık geçerli olmayabilir
   // (butonla veya Geri Al/Sıfırla ile — hepsi startState/movesMatrix'i değiştirir).
   useEffect(() => {
@@ -429,6 +468,14 @@ function App() {
     setCompletedVectors(new Set());
   };
 
+  // onMacroFinished aboneliği tek seferlik (aşağıda) olduğu için Space
+  // ayarlarını her render'da güncel tutan bir ref üzerinden okuyoruz —
+  // yoksa kapanış (closure) ilk render'daki eski değerlerde takılı kalır.
+  const settingsRef = useRef({ sendSpaceAfterSolve, spaceDelay, holdTime });
+  useEffect(() => {
+    settingsRef.current = { sendSpaceAfterSolve, spaceDelay, holdTime };
+  });
+
   // Makro olayları uygulama ömrü boyunca tek sefer bağlanır; her çalıştırmada
   // yeniden abone olmak (eski kod) iptal/hata durumlarında dinleyici sızdırıyordu.
   useEffect(() => {
@@ -448,6 +495,17 @@ function App() {
       }
       // Başarıyla bitti: "Kilit Açıldı" kutlaması + otomatik küçültme geri sayımı.
       setCompletionCountdown(2);
+
+      // İsteğe bağlı: kilit açıldıktan sonra Space gönder. Bu, isExecuting/
+      // completionCountdown akışının tamamen dışında, ayrı ve sessiz bir
+      // yan-eylem — ana "makro bitti" event zincirine tekrar girmiyor
+      // (aksi halde kutlama/geri sayım ikinci kez tetiklenirdi).
+      const { sendSpaceAfterSolve: shouldSendSpace, spaceDelay: spaceWait, holdTime: hold } = settingsRef.current;
+      if (shouldSendSpace) {
+        setTimeout(() => {
+          (window as any).electronAPI?.sendKey?.('space', { holdTime: hold });
+        }, spaceWait);
+      }
     });
     const offAbort = api.onMacroAbort?.(() => {
       setIsExecuting(false);
@@ -566,7 +624,8 @@ function App() {
     // burada ayrıca beklemeye gerek yok.
     (window as any).electronAPI?.executeMacro(steps, {
       delay: macroDelay,
-      holdTime
+      holdTime,
+      resetDelay
     });
   };
 
@@ -986,11 +1045,74 @@ function App() {
                      </div>
                    </div>
 
+                   <div className="flex items-center gap-4">
+                     <RotateCcw size={16} className="text-[var(--color-neon-blue)] shrink-0" />
+                     <div className="flex-1 flex flex-col gap-1">
+                       <span className="text-[9px] text-gray-500 uppercase tracking-widest">R sonrası ek bekleme</span>
+                       <input
+                         type="range"
+                         min="0"
+                         max="3000"
+                         step="50"
+                         value={resetDelay}
+                         onChange={(e) => setResetDelay(parseInt(e.target.value))}
+                         className="w-full accent-[var(--color-neon-blue)] h-1 bg-gray-700 rounded-full appearance-none outline-none"
+                       />
+                     </div>
+                     <div className="w-16 text-right font-mono text-sm text-[var(--color-neon-pink)] drop-shadow-[0_0_3px_var(--color-neon-pink)]">
+                       {resetDelay}ms
+                     </div>
+                   </div>
+
                    <p className="text-[10px] text-gray-600 leading-relaxed">
                      Tuşlar (W A S D) DirectInput uyumlu tarama kodlarıyla (SendInput) gönderilir.
                      Gothic tuşları atlıyorsa basılı kalma süresini, animasyona yetişemiyorsa
-                     bekleme süresini artırın. Acil durdurma: <span className="text-gray-400 font-mono">Alt+X</span>.
+                     bekleme süresini artırın. Otomatik Çöz, oyunun R (sıfırlama) tuşuyla
+                     başlar; kilit gerçekten sıfırlanana kadar üstteki ek bekleme uygulanır.
+                     Acil durdurma: <span className="text-gray-400 font-mono">Alt+X</span>.
                    </p>
+
+                   <div className="w-full h-px bg-gray-800/50"></div>
+
+                   <div className="flex items-center justify-between">
+                     <span className="text-xs text-gray-500">Kilit açıldıktan sonra Space gönder</span>
+                     <button
+                       onClick={() => setSendSpaceAfterSolve(v => !v)}
+                       title={sendSpaceAfterSolve ? 'Space göndermeyi kapat' : 'Space göndermeyi aç'}
+                       className={`shrink-0 w-12 h-7 rounded-full relative transition-colors border ${
+                         sendSpaceAfterSolve
+                           ? 'bg-[var(--color-neon-blue)]/30 border-[var(--color-neon-blue)]/60'
+                           : 'bg-black/40 border-gray-700'
+                       }`}
+                     >
+                       <span
+                         className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform ${
+                           sendSpaceAfterSolve ? 'translate-x-5 bg-[var(--color-neon-blue)]' : 'translate-x-0 bg-gray-500'
+                         }`}
+                       />
+                     </button>
+                   </div>
+
+                   {sendSpaceAfterSolve && (
+                     <div className="flex items-center gap-4">
+                       <Clock size={16} className="text-[var(--color-neon-blue)] shrink-0" />
+                       <div className="flex-1 flex flex-col gap-1">
+                         <span className="text-[9px] text-gray-500 uppercase tracking-widest">Space öncesi bekleme</span>
+                         <input
+                           type="range"
+                           min="0"
+                           max="3000"
+                           step="50"
+                           value={spaceDelay}
+                           onChange={(e) => setSpaceDelay(parseInt(e.target.value))}
+                           className="w-full accent-[var(--color-neon-blue)] h-1 bg-gray-700 rounded-full appearance-none outline-none"
+                         />
+                       </div>
+                       <div className="w-16 text-right font-mono text-sm text-[var(--color-neon-pink)] drop-shadow-[0_0_3px_var(--color-neon-pink)]">
+                         {spaceDelay}ms
+                       </div>
+                     </div>
+                   )}
                 </div>
               </div>
               {/* Section 4: Auto Mod */}

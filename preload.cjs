@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setButtonVisible: (visible) => ipcRenderer.send('set-button-visible', visible),
   executeMacro: (steps, options) => ipcRenderer.send('execute-macro', steps, options),
   cancelMacro: () => ipcRenderer.send('cancel-macro'),
+  sendKey: (key, options) => ipcRenderer.send('send-key', key, options),
   startFocusGuard: () => ipcRenderer.send('start-focus-guard'),
   stopFocusGuard: () => ipcRenderer.send('stop-focus-guard'),
   quitApp: () => ipcRenderer.send('quit-app'),

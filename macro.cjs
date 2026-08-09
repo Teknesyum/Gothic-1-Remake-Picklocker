@@ -25,13 +25,15 @@ const SCANCODES = {
   a: { scan: 0x1e, ext: false },
   s: { scan: 0x1f, ext: false },
   d: { scan: 0x20, ext: false },
-  r: { scan: 0x13, ext: false }
+  r: { scan: 0x13, ext: false },
+  space: { scan: 0x39, ext: false }
 };
 
 const DEFAULTS = {
   delay: 250,        // tuşlar arası bekleme (ms)
   holdTime: 60,      // tuşun basılı kaldığı süre (ms)
   startupDelay: 400, // odak verildikten sonra ilk tuşa kadar bekleme (ms)
+  resetDelay: 0,     // R (sıfırlama) sonrası eklenen ekstra bekleme (ms)
   // Odaklanılacak oyun süreçleri (uzantısız). GothicMod = modlu kurulumlar.
   processNames: ['Gothic', 'GothicMod', 'Gothic2', 'Gothic2Mod']
 };
@@ -145,6 +147,7 @@ function buildMacroScript(steps, options = {}) {
   const delay = clamp(options.delay, 0, 5000, DEFAULTS.delay);
   const holdTime = clamp(options.holdTime, 10, 1000, DEFAULTS.holdTime);
   const startupDelay = clamp(options.startupDelay, 0, 5000, DEFAULTS.startupDelay);
+  const resetDelay = clamp(options.resetDelay, 0, 3000, DEFAULTS.resetDelay);
   const excludePid = Number.isInteger(options.excludePid) ? options.excludePid : 0;
   const processNames = Array.isArray(options.processNames) && options.processNames.length
     ? options.processNames
@@ -207,12 +210,12 @@ try {
         Start-Sleep -Milliseconds ${delay}
         # R (reset) sonrası oyunun kilidi gerçekten sıfırlaması için normal
         # adım aralığının üstüne ekstra bekleme.
-        if ($scans[$i] -eq 0x13) { Start-Sleep -Milliseconds 1500 }
+        if ($scans[$i] -eq 0x13) { Start-Sleep -Milliseconds ${resetDelay} }
     }
     Write-Marker 'DONE'
 } finally {
     # Süreç yarıda kesilirse tuşun basılı kalmaması için hepsini bırak.
-    foreach ($pair in @(@(0x11,$false), @(0x1E,$false), @(0x1F,$false), @(0x20,$false), @(0x13,$false))) {
+    foreach ($pair in @(@(0x11,$false), @(0x1E,$false), @(0x1F,$false), @(0x20,$false), @(0x13,$false), @(0x39,$false))) {
         [void][G1Input]::Key([uint16]$pair[0], [bool]$pair[1], $true)
     }
 }
@@ -398,10 +401,14 @@ function runMacro(steps, options, handlers = {}) {
 
   child.on('close', (code) => {
     cleanup();
+    // Sıfır olmayan çıkış kodu genellikle taskkill ile öldürülmüş (durdurulmuş)
+    // bir süreçten gelir; asıl gerçek hata mesajı stderr'de yoksa kullanıcıya
+    // anlamsız/alarm verici "PowerShell çıkış kodu N" metnini göstermeye
+    // gerek yok — çağıran taraf zaten "cancelled" durumunu ayrıca ele alıyor.
     handlers.onFinished?.({
       ok: code === 0,
       code,
-      error: code === 0 ? undefined : stderr.trim() || `PowerShell çıkış kodu ${code}`
+      error: code === 0 ? undefined : (stderr.trim() || undefined)
     });
   });
 
