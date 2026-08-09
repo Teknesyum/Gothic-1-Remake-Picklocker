@@ -212,8 +212,16 @@ ipcMain.on('execute-macro', (event, steps, options = {}) => {
       onStep: (index) => event.sender.send('macro-step', index),
       onFocus: (status) => event.sender.send('macro-focus', status),
       onFinished: (info) => {
-        if (macroChild === child) macroChild = null;
-        event.sender.send('macro-finished', info);
+        // stopMacro() (Durdur/Alt+X) zaten macroChild'ı null'layıp kendi
+        // 'macro-finished' mesajını göndermiş olabilir; bu durumda süreç
+        // taskkill ile öldürüldüğü için burada ayrıca sıfır olmayan bir çıkış
+        // koduyla İKİNCİ bir (yanlış "PowerShell çıkış kodu 1" hatası veren)
+        // mesaj göndermemeliyiz — sadece süreç hâlâ "aktif" makro sayılıyorsa gönder.
+        const wasActive = macroChild === child;
+        if (wasActive) {
+          macroChild = null;
+          event.sender.send('macro-finished', info);
+        }
       }
     });
     macroChild = child;

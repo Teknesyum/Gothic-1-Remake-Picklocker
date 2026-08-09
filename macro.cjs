@@ -207,7 +207,7 @@ try {
         Start-Sleep -Milliseconds ${delay}
         # R (reset) sonrası oyunun kilidi gerçekten sıfırlaması için normal
         # adım aralığının üstüne ekstra bekleme.
-        if ($scans[$i] -eq 0x13) { Start-Sleep -Milliseconds 200 }
+        if ($scans[$i] -eq 0x13) { Start-Sleep -Milliseconds 1500 }
     }
     Write-Marker 'DONE'
 } finally {
