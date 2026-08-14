@@ -784,13 +784,13 @@ function App() {
               setIsPanelOpen(!isPanelOpen);
               (window as any).electronAPI?.setOverlayInteractive(!isPanelOpen || isTargeting);
             }}
-            className={`p-3 rounded-xl border transition-all duration-300 shadow-2xl backdrop-blur-md flex items-center justify-center ${
+            className={`p-2 rounded-xl border transition-all duration-300 shadow-2xl backdrop-blur-md flex items-center justify-center ${
               isPanelOpen
                 ? 'bg-[var(--color-neon-blue)] border-[var(--color-neon-blue)] text-black hover:bg-[var(--color-neon-blue)]/80 hover:scale-110 shadow-[0_0_20px_var(--color-neon-blue)]'
                 : 'bg-[#08090a]/95 border-gray-700 text-gray-400 hover:bg-gray-800'
             }`}
           >
-            {isPanelOpen ? <Minus size={24} /> : <Menu size={24} />}
+            {isPanelOpen ? <Minus size={16} /> : <Menu size={16} />}
           </button>
         </div>
       )}
