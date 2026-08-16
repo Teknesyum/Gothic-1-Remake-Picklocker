@@ -113,7 +113,7 @@ const PANEL_WIDTH = 450;
 const PANEL_BOTTOM_MARGIN = 16;
 
 // Pasif Mod: köşe butonu simgesiz/görünmez dururken farenin butonun
-// bulunduğu 100x100 bölgeye girip girmediğini render'dan bağımsız olarak
+// bulunduğu 44x44 bölgeye girip girmediğini render'dan bağımsız olarak
 // bilmemiz gerekiyor (buton zaten görünmezken normal hit-testing bunu
 // yakalamaz). `screen.getCursorScreenPoint()` pencere click-through/pass
 // through modundayken bile çalışır, bu yüzden ayrı bir algılamaya gerek yok
@@ -129,7 +129,7 @@ setInterval(() => {
   const relX = point.x - winBounds.x;
   const relY = point.y - winBounds.y;
 
-  const overButtonCorner = relX >= 0 && relX <= 100 && relY >= 0 && relY <= 100;
+  const overButtonCorner = relX >= 0 && relX <= 44 && relY >= 0 && relY <= 44;
   if (overButtonCorner !== wasOverButtonCorner) {
     wasOverButtonCorner = overButtonCorner;
     overlayWindow.webContents.send('corner-hover', overButtonCorner);
@@ -141,11 +141,11 @@ setInterval(() => {
     // Hedefleme sırasında köşe şablonu her yerden seçilebilmeli.
     shouldCatch = true;
   } else {
-    // Hamburger button hitbox: 100x100 top-left. Only catch here while the
+    // Hamburger button hitbox: 44x44 top-left. Only catch here while the
     // button is actually rendered — otherwise this square is an invisible
     // dead zone the player can't click through to the game underneath.
     const inButtonHitbox = isButtonVisible &&
-      relX >= 0 && relX <= 100 && relY >= 0 && relY <= 100;
+      relX >= 0 && relX <= 44 && relY >= 0 && relY <= 44;
 
     // Panel açıkken SADECE panelin görsel dikdörtgenini yakala — eskiden
     // bu blok isPanelOpen olduğunda tüm pencereyi (ekranı) tıklanabilir
