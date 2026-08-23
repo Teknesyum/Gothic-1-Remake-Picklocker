@@ -4,6 +4,7 @@
   "description": "Gothic 1 kilit açma mini oyunu için şeffaf çözücü overlay",
   "author": "Administrator",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "version": "1.2.0",
   "type": "module",
   "main": "main.cjs",

@@ -44,3 +44,9 @@ npm run dist              # Build a portable .exe (release/)
 ```
 
 See [`CLAUDE.md`](CLAUDE.md) for architecture details and design decisions.
+
+## License
+
+AGPL-3.0-or-later — see [LICENSE](LICENSE).
+
+Copyright (C) 2026 Teknesyum
