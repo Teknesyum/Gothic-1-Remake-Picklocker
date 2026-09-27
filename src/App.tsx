@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { Play, ArrowRight, ArrowLeftRight, Circle, ChevronLeft, ChevronRight, Terminal, Clock, Crosshair, Menu, Minus, Square, Timer, AlertTriangle, Power, RotateCcw, Undo2, Search, CheckCircle2 } from 'lucide-react';
 import { LockSolver } from './LockSolver';
 import './index.css';
+import { UpdateBadge } from '../teknesyum-ui/durum/UpdateBadge';
+import { UpdatePanel, type UpdateState } from '../teknesyum-ui/durum/UpdatePanel';
 
 type MacroStep = {
   key: string;
@@ -133,6 +135,22 @@ function loadPersistedSettings(): Partial<PersistedSettings> | null {
 }
 
 function App() {
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null);
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const [updateOpener, setUpdateOpener] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    api?.getUpdateState?.().then((s: UpdateState | null) => setUpdateState(s));
+    return api?.onUpdateState?.((s: UpdateState | null) => {
+      setUpdateState(s);
+      if (!s) setUpdateOpen(false);
+    });
+  }, []);
+
+  useEffect(() => {
+    (window as any).electronAPI?.setUpdateOpen?.(updateOpen);
+  }, [updateOpen]);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [numPlates, setNumPlates] = useState(() => loadPersistedState()?.numPlates ?? 6);
   const [startState, setStartState] = useState<number[]>(
@@ -841,7 +859,15 @@ function App() {
         style={{ transform: isPanelOpen ? 'translateX(0)' : 'translateX(-120%)' }}
       >
         <div className="flex items-center justify-between mb-6 pb-4 g-rule-bottom shrink-0">
-          <h2 className="g-h2">Kilit çözücü (F9)</h2>
+          <div className="flex flex-col items-start gap-2 min-w-0">
+            <h2 className="g-h2 whitespace-nowrap">Kilit çözücü (F9)</h2>
+            <UpdateBadge
+              phase={updateState && updateState.phase !== 'error' && updateState.phase !== 'installing' ? updateState.phase : null}
+              percent={updateState?.percent ?? 0}
+              version={updateState?.latest}
+              onOpen={(el) => { setUpdateOpener(el); setUpdateOpen(true); }}
+            />
+          </div>
 
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2 g-decor-frame p-1">
@@ -1168,6 +1194,16 @@ function App() {
           )}
         </div>
       </div>
+      <UpdatePanel
+        open={updateOpen}
+        state={updateState}
+        returnTo={updateOpener}
+        onClose={() => setUpdateOpen(false)}
+        onDownload={(andInstall) => (window as any).electronAPI?.downloadUpdate(andInstall)}
+        onCancel={() => (window as any).electronAPI?.cancelUpdate()}
+        onInstall={() => (window as any).electronAPI?.installUpdate()}
+        onCheck={() => (window as any).electronAPI?.checkUpdate()}
+      />
     </div>
   );
 }

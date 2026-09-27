@@ -47,15 +47,15 @@ Gothic 1 (Remake) üstünde duran saydam bir Electron penceresidir. Her plakanı
 
 ## Kurulum
 
-Windows, PowerShell içinde:
+Windows 10 ya da 11, x64.
 
-```powershell
-irm https://raw.githubusercontent.com/Teknesyum/Gothic-1-Remake-Picklocker/v1.2/install.ps1 | iex
-```
+**Teknesyum Base ile.** Listeden **Gothic 1 LockPicker**'ı seç ve kur'a bas.
 
-Gerekenler: [Git](https://git-scm.com/downloads) ve [Node.js](https://nodejs.org). Betik depoyu `%LOCALAPPDATA%\Gothic1LockPicker` altına klonlar, `npm install` çalıştırır ve masaüstüne `Gothic 1 LockPicker.bat` koyar.
+**Kurulum paneliyle.** [Son sürümden](https://github.com/Teknesyum/Gothic-1-Remake-Picklocker/releases/latest) `Kur.zip` dosyasını indir, aç ve `Kur.bat`'a çift tıkla. Panel `Gothic1LockPicker-win-x64.zip` dosyasını `.sha256` dosyasıyla birlikte indirir; sağlama tutmazsa kurmaz. Program `%LOCALAPPDATA%\Programs\Gothic 1 LockPicker` altına gider, yönetici yetkisi gerekmez; masaüstüne ve Başlat menüsüne kısayol yazılır.
 
-Uygulama her açılışta kendi kopyasını `origin/master` ile karşılaştırır ve güncellemeden önce sorar. macOS ya da Linux kurulumu ve Claude Code eklentisi yoktur.
+**Elle.** Sürüm sayfasından `Gothic1LockPicker-win-x64.zip` dosyasını indir, yanındaki `.sha256` ile karşılaştır, aç ve `Gothic1LockPicker.exe`'yi çalıştır. Exe henüz imzalı değil; ilk açılışta SmartScreen uyarabilir.
+
+Yeni sürüm çıkınca panel başlığında **Güncelleme** rozeti belirir. Sen basmadan hiçbir şey inmez, uygulama da yalnız **Yükle**'ye bastığında yeniden başlar. macOS ya da Linux sürümü ve Claude Code eklentisi yoktur.
 
 ## Nasıl Çalışır
 
@@ -81,7 +81,7 @@ Diyagram soldan sağa okunur: plaka konumları enine aramaya girer, gruplama ge�
 | Çözüm özeti | Hiçbir tuşa basılmadan önce her adım, hamlesi ve tekrar sayısıyla. |
 | Makro ilerlemesi | Şu an hangi adıma basıldığı ve bir durdurma düğmesi. |
 | Odak uyarısı | Oynatmadan önce oyun penceresinin öne getirilip getirilemediği. |
-| Güncelleme sorusu | Yeni sürüm olduğu ve sen kabul etmeden hiçbir şeyin değişmediği. |
+| Güncelleme rozeti ve paneli | Yeni sürüm olduğu, indirme ilerlemesi, SHA-256 denetimi ve Yükle'ye basmadan hiçbir şeyin kurulmadığı. |
 
 ## Geliştirme
 
@@ -109,7 +109,7 @@ npm run dist
 npm run icon
 ```
 
-`electron:dev` Vite ile Electron'u birlikte başlatır. `dist` taşınabilir exe'yi `release/` altına derler. `icon`, `assets/icon.svg` ve `assets/icon-small.svg` dosyalarından `assets/icon.ico` ile PNG'leri yeniden üretir.
+`electron:dev` Vite ile Electron'u birlikte başlatır. `dist`, `Gothic1LockPicker-win-x64.zip`, `.sha256` ve `Kur.zip` dosyalarını `release/` altına derler. `icon`, `assets/icon.svg` ve `assets/icon-small.svg` dosyalarından `assets/icon.ico` ile PNG'leri yeniden üretir.
 
 Arayüz renkleri, yarıçaplar ve süreler `teknesyum-ui/` altındaki üretilmiş token'lardan gelir. Mimari notlar ve önledikleri hatalar [docs/architecture.md](docs/architecture.md) içinde.
 

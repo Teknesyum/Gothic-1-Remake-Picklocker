@@ -37,6 +37,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('overlay:toggle', handler);
     return () => ipcRenderer.removeListener('overlay:toggle', handler);
   },
+  getUpdateState: () => ipcRenderer.invoke('update-get'),
+  checkUpdate: () => ipcRenderer.send('update-check'),
+  downloadUpdate: (andInstall) => ipcRenderer.send('update-download', andInstall),
+  cancelUpdate: () => ipcRenderer.send('update-cancel'),
+  installUpdate: () => ipcRenderer.send('update-install'),
+  setUpdateOpen: (open) => ipcRenderer.send('set-update-open', open),
+  onUpdateState: (callback) => {
+    const handler = (_event, state) => callback(state);
+    ipcRenderer.on('update-state', handler);
+    return () => ipcRenderer.removeListener('update-state', handler);
+  },
   onCornerHover: (callback) => {
     const handler = (_event, isOver) => callback(isOver);
     ipcRenderer.on('corner-hover', handler);

@@ -1,0 +1,8 @@
+{
+  "name": "Gothic 1 LockPicker",
+  "category": "games",
+  "asset": "Gothic1LockPicker-win-x64.zip",
+  "method": "zip",
+  "run": "Gothic1LockPicker.exe",
+  "icon": "assets/icon-256.png"
+}

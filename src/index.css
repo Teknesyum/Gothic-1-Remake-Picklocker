@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "../teknesyum-ui/css/theme.css";
 @import "../teknesyum-ui/css/states.css";
+@import "../teknesyum-ui/css/forms.css";
 @import "../teknesyum-ui/css/a11y.css";
 
 @theme inline {
@@ -15,6 +16,14 @@ body {
 #root {
   width: 100vw;
   height: 100vh;
+}
+
+.tk-modal {
+  background: var(--tk-glass);
+  border: var(--tk-border-w) solid var(--tk-border);
+  border-radius: var(--tk-r);
+  padding: var(--tk-panel-padding);
+  box-shadow: var(--tk-shadow-panel);
 }
 
 .g-panel {

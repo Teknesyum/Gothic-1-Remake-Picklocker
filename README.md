@@ -47,15 +47,15 @@ You can. The minigame is a small puzzle and trial and error works. What this add
 
 ## Installation
 
-Windows, in PowerShell:
+Windows 10 or 11, x64.
 
-```powershell
-irm https://raw.githubusercontent.com/Teknesyum/Gothic-1-Remake-Picklocker/v1.2/install.ps1 | iex
-```
+**With Teknesyum Base.** Pick **Gothic 1 LockPicker** from the list and press install.
 
-Required: [Git](https://git-scm.com/downloads) and [Node.js](https://nodejs.org). The script clones the repository into `%LOCALAPPDATA%\Gothic1LockPicker`, runs `npm install` and puts `Gothic 1 LockPicker.bat` on the desktop.
+**With the installer.** From the [latest release](https://github.com/Teknesyum/Gothic-1-Remake-Picklocker/releases/latest), download `Kur.zip`, unzip it and double-click `Kur.bat`. It downloads `Gothic1LockPicker-win-x64.zip` with its `.sha256` file and refuses to install if the checksum does not match. The program goes to `%LOCALAPPDATA%\Programs\Gothic 1 LockPicker`, so no admin rights are needed, and gets a desktop and a Start menu shortcut.
 
-On every start the app compares its checkout with `origin/master` and asks before updating. There is no macOS or Linux install and no Claude Code plugin.
+**By hand.** Download `Gothic1LockPicker-win-x64.zip` from the release page, check it against the `.sha256` next to it, unzip and run `Gothic1LockPicker.exe`. The exe is not code-signed yet, so SmartScreen may warn on first launch.
+
+When a newer release is out, an **Update** badge appears in the panel header. Nothing is downloaded until you press it, and the app restarts only when you press **Install**. There is no macOS or Linux build and no Claude Code plugin.
 
 ## How It Works
 
@@ -81,7 +81,7 @@ The diagram reads left to right: plate positions go into the breadth-first searc
 | Solution summary | Each step with its move and repeat count before anything is pressed. |
 | Macro progress | Which step is being pressed right now, and a stop button. |
 | Focus warning | Whether the game window could be brought to the front before playback. |
-| Update prompt | That a newer version exists, and that nothing changes until you accept. |
+| Update badge and panel | That a newer release exists, download progress, the SHA-256 check, and that nothing is installed until you press Install. |
 
 ## Development
 
@@ -109,7 +109,7 @@ npm run dist
 npm run icon
 ```
 
-`electron:dev` starts Vite and Electron together. `dist` builds a portable exe into `release/`. `icon` rebuilds `assets/icon.ico` and the PNGs from `assets/icon.svg` and `assets/icon-small.svg`.
+`electron:dev` starts Vite and Electron together. `dist` builds `Gothic1LockPicker-win-x64.zip`, its `.sha256` and `Kur.zip` into `release/`. `icon` rebuilds `assets/icon.ico` and the PNGs from `assets/icon.svg` and `assets/icon-small.svg`.
 
 UI colours, radii and durations come from the generated tokens in `teknesyum-ui/`. Architecture notes and the bugs they prevent are in [docs/architecture.md](docs/architecture.md).
 
