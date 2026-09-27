@@ -40,6 +40,7 @@ function createOverlayWindow() {
     height,
     transparent: true,
     frame: false,
+    icon: path.join(__dirname, 'assets', 'icon.ico'),
     // Deliberately NOT `fullscreen: true`. Windows only lets one real
     // fullscreen surface own the screen at a time; a second fullscreen
     // window (ours) fighting the game for that slot is what caused the

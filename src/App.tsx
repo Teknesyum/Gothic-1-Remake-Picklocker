@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Play, ArrowRight, ArrowLeftRight, Circle, ChevronLeft, ChevronRight, Terminal, Clock, Crosshair, Menu, Minus, Square, Timer, AlertTriangle, Power, RotateCcw, Undo2, Search, CheckCircle2 } from 'lucide-react';
 import { LockSolver } from './LockSolver';
+import './index.css';
 
 type MacroStep = {
   key: string;
@@ -675,10 +676,16 @@ function App() {
     beginExecution(result.steps);
   };
 
+  const lockedTitle = 'Çözüm uygulanırken değiştirilemez';
+
+  const staggerDelay = (i: number) => ({
+    animationDelay: `calc(var(--tk-stagger) * min(${i}, var(--tk-stagger-max)))`
+  });
+
   const renderPositionButton = (plateIndex: number, displayVal: number) => {
     const isSelected = startState[plateIndex] === displayVal;
     return (
-      <button 
+      <button
         key={displayVal}
         onClick={() => {
           if (isSelected) return;
@@ -688,11 +695,9 @@ function App() {
           setStartState(next);
         }}
         disabled={isExecuting}
-        className={`w-10 h-10 rounded flex items-center justify-center font-mono text-xs transition-all duration-200 cursor-pointer ${
-          isSelected 
-            ? 'bg-[var(--color-neon-blue)]/20 border border-[var(--color-neon-blue)]/50 text-[var(--color-neon-blue)] shadow-[0_0_8px_var(--color-neon-blue)_inset]' 
-            : 'bg-black/40 border border-transparent text-gray-500 hover:border-gray-600'
-        } ${isExecuting ? 'opacity-50 cursor-not-allowed' : ''}`}
+        title={isExecuting ? lockedTitle : `${String.fromCharCode(65 + plateIndex)} plakası: ${displayVal}`}
+        aria-pressed={isSelected}
+        className="g-cell g-cell-square"
       >
         {displayVal > 0 ? `+${displayVal}` : displayVal}
       </button>
@@ -702,30 +707,32 @@ function App() {
   const renderMoveButton = (moveIndex: number, affectedIndex: number) => {
     const row = movesMatrix[moveIndex] || Array(numPlates).fill(0);
     const val = row[affectedIndex] || 0;
-    
+
     if (moveIndex === affectedIndex) {
       return (
-        <div key={affectedIndex} className="flex-1 h-10 rounded flex items-center justify-center border transition-all duration-200 bg-[var(--color-neon-blue)]/10 border-[var(--color-neon-blue)]/30 shadow-[0_0_5px_var(--color-neon-blue)_inset]">
-          <ArrowRight size={14} className="text-[var(--color-neon-blue)]" />
+        <div key={affectedIndex} className="g-self flex-1">
+          <ArrowRight size={14} aria-hidden="true" />
         </div>
       );
     }
 
-    let icon = <Circle size={6} className="fill-gray-700 text-gray-700" />;
-    let style = "bg-black/20 border-transparent text-gray-700 hover:border-gray-600 cursor-pointer";
-    
+    let icon = <Circle size={6} fill="currentColor" aria-hidden="true" />;
+    let label = 'Yok';
     if (val === 1) {
-      icon = <ArrowRight size={14} className="text-[var(--color-neon-blue)]" />;
-      style = "bg-[var(--color-neon-blue)]/10 border-[var(--color-neon-blue)]/30 shadow-[0_0_5px_var(--color-neon-blue)_inset] cursor-pointer";
+      icon = <ArrowRight size={14} aria-hidden="true" />;
+      label = 'Aynı';
     } else if (val === -1) {
-      icon = <ArrowLeftRight size={14} className="text-[var(--color-neon-pink)]" />;
-      style = "bg-[var(--color-neon-pink)]/10 border-[var(--color-neon-pink)]/30 shadow-[0_0_5px_var(--color-neon-pink)_inset] cursor-pointer";
+      icon = <ArrowLeftRight size={14} aria-hidden="true" />;
+      label = 'Ters';
     }
 
     return (
-      <button 
+      <button
         key={affectedIndex}
         disabled={isExecuting}
+        title={isExecuting ? lockedTitle : `${String.fromCharCode(65 + moveIndex)} → ${String.fromCharCode(65 + affectedIndex)}: ${label}`}
+        aria-label={`${String.fromCharCode(65 + moveIndex)} → ${String.fromCharCode(65 + affectedIndex)}: ${label}`}
+        data-val={val}
         onClick={() => {
           pushHistory();
           const next = [...movesMatrix];
@@ -736,180 +743,202 @@ function App() {
           next[moveIndex] = row;
           setMovesMatrix(next);
         }}
-        className={`flex-1 h-10 rounded flex items-center justify-center border transition-all duration-200 ${style} ${isExecuting ? 'opacity-50 cursor-not-allowed' : ''}`}
+        className="g-cell flex-1"
       >
         {icon}
       </button>
     );
   };
 
+  const renderSwitch = (checked: boolean, onToggle: () => void, title: string) => (
+    <button
+      role="switch"
+      aria-checked={checked}
+      onClick={onToggle}
+      title={title}
+      aria-label={title}
+      className="g-switch"
+    >
+      <span className="g-switch-thumb" />
+    </button>
+  );
+
+  const renderSlider = (
+    Icon: typeof Clock,
+    label: string,
+    value: number,
+    min: number,
+    max: number,
+    step: number,
+    onChange: (v: number) => void
+  ) => (
+    <div className="flex items-center gap-4">
+      <Icon size={16} className="text-[var(--tk-renk-1)] shrink-0" aria-hidden="true" />
+      <label className="flex-1 flex flex-col gap-1">
+        <span className="g-label">{label}</span>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(parseInt(e.target.value))}
+          data-tk="slider"
+          className="g-range"
+        />
+      </label>
+      <div className="w-16 text-right g-value">{value}ms</div>
+    </div>
+  );
+
   return (
-    <div id="root-container" className="w-screen h-screen bg-transparent overflow-hidden font-sans text-gray-300">
-      
-      {/* Hidden Media Elements */}
+    <div id="root-container" className="w-screen h-screen overflow-hidden text-[var(--tk-text)]">
       <video ref={videoRef} className="hidden" muted />
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Targeting Overlay */}
       {isTargeting && (
-        <div 
-          className="fixed inset-0 z-50 cursor-crosshair bg-black/10"
+        <div
+          className="fixed inset-0 z-50 cursor-crosshair bg-[color-mix(in_srgb,var(--tk-surface)_10%,transparent)]"
           onMouseMove={(e) => setCursorPos({ x: e.clientX, y: e.clientY })}
           onClick={handleTargetClick}
         >
-           <div className="absolute inset-0 flex items-center justify-center text-[var(--color-neon-pink)] drop-shadow-[0_0_5px_var(--color-neon-pink)] font-bold text-xl pointer-events-none animate-pulse">
-              Kilit ekranından ayırt edici bir köşeye tıklayın (Örn: Zorluk yazısı)
-           </div>
-           <div
-             className="absolute border-2 border-[var(--color-neon-pink)] shadow-[0_0_15px_var(--color-neon-pink)] pointer-events-none"
-             style={{
-               width: CAPTURE_SIZE,
-               height: CAPTURE_SIZE,
-               left: cursorPos.x - CAPTURE_SIZE / 2,
-               top: cursorPos.y - CAPTURE_SIZE / 2
-             }}
-           />
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="g-panel g-enter text-tk-3 text-[var(--tk-text)]">
+              Kilit ekranından ayırt edici bir köşeye tıklayın (örn: zorluk yazısı)
+            </div>
+          </div>
+          <div
+            className="absolute border-[length:var(--tk-focus-w)] border-[var(--tk-renk-2)] pointer-events-none"
+            style={{
+              width: CAPTURE_SIZE,
+              height: CAPTURE_SIZE,
+              left: cursorPos.x - CAPTURE_SIZE / 2,
+              top: cursorPos.y - CAPTURE_SIZE / 2
+            }}
+          />
         </div>
       )}
 
-      {/* Toggle Button: targeting sırasında her zaman gizli; Auto Mod
-          kurulduysa yalnızca kilit ekranı algılandığında görünür; Pasif
-          Mod açıksa panel kapalıyken de fare köşeye gelmedikçe gizli
-          kalır. Panelin açık/kapalı durumunu değiştirmez, sadece bu
-          butonu gösterir/gizler. */}
       {!isTargeting && isToggleButtonVisible && (
         <div className="absolute top-2 left-2 z-50">
-          <button 
+          <button
             onClick={() => {
               setIsPanelOpen(!isPanelOpen);
               (window as any).electronAPI?.setOverlayInteractive(!isPanelOpen || isTargeting);
             }}
-            className={`p-2 rounded-xl border transition-all duration-300 shadow-2xl backdrop-blur-md flex items-center justify-center ${
-              isPanelOpen
-                ? 'bg-[var(--color-neon-blue)] border-[var(--color-neon-blue)] text-black hover:bg-[var(--color-neon-blue)]/80 hover:scale-110 shadow-[0_0_20px_var(--color-neon-blue)]'
-                : 'bg-[#08090a]/95 border-gray-700 text-gray-400 hover:bg-gray-800'
-            }`}
+            aria-expanded={isPanelOpen}
+            aria-label={isPanelOpen ? 'Paneli küçült' : 'Paneli aç'}
+            title={isPanelOpen ? 'Paneli küçült' : 'Paneli aç'}
+            className="g-corner"
           >
-            {isPanelOpen ? <Minus size={16} /> : <Menu size={16} />}
+            {isPanelOpen ? <Minus size={16} aria-hidden="true" /> : <Menu size={16} aria-hidden="true" />}
           </button>
         </div>
       )}
 
-      {/* Slide-out Control Panel */}
       <div
-        className="absolute top-20 left-4 bottom-4 w-[450px] bg-[#08090a]/95 backdrop-blur-xl border border-[var(--color-neon-blue)]/20 rounded-2xl p-6 shadow-[0_0_40px_rgba(0,0,0,0.8)] flex flex-col transition-transform duration-500 overflow-hidden"
-        // Tailwind'in ayrık `translate-x-*` sınıfları (Tailwind v4'te modern
-        // CSS `translate` özelliğini kullanıyor) bu Electron/Chromium
-        // yapısında güvenilmez davranış gösterdi: sınıf `translate-x-0`
-        // olarak doğru uygulansa bile hesaplanan stil eski değerde
-        // ("-120%") takılı kalabiliyordu, panel görsel olarak kapalı
-        // konumda sıkışıp içerik üst üste biniyordu. Klasik ve her yerde
-        // güvenilir olan `transform: translateX()` ile satır içi stil
-        // kullanmak bu belirsizliği tamamen ortadan kaldırıyor.
+        className="g-panel absolute top-20 left-4 bottom-4 w-[450px] flex flex-col overflow-hidden"
         style={{ transform: isPanelOpen ? 'translateX(0)' : 'translateX(-120%)' }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-800 shrink-0">
-          <h2 className="text-[var(--color-neon-blue)] font-bold tracking-widest text-lg drop-shadow-[0_0_5px_var(--color-neon-blue)]">
-            KİLİT ÇÖZÜCÜ (F9)
-          </h2>
-          
+        <div className="flex items-center justify-between mb-6 pb-4 g-rule-bottom shrink-0">
+          <h2 className="g-h2">Kilit çözücü (F9)</h2>
+
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 bg-black/40 rounded-lg p-1 border border-gray-800">
-              <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest px-2">Plaka:</span>
+            <div className="flex items-center gap-2 g-decor-frame p-1">
+              <span className="g-label px-2">Plaka:</span>
               <button
                 disabled={isExecuting}
+                title={isExecuting ? lockedTitle : 'Plaka sayısını azalt'}
                 onClick={() => setNumPlates(Math.max(2, numPlates - 1))}
-                className="w-6 h-6 rounded flex items-center justify-center hover:bg-gray-800 transition-colors disabled:opacity-50"
-              ><ChevronLeft size={16}/></button>
-              <div className="font-mono text-sm font-bold w-4 text-center text-[var(--color-neon-pink)] drop-shadow-[0_0_5px_var(--color-neon-pink)]">{numPlates}</div>
+                aria-label="Plaka sayısını azalt"
+                data-tk="icon-button"
+                className="g-icon-btn"
+              ><ChevronLeft size={16} aria-hidden="true" /></button>
+              <div className="g-value w-5 text-center">{numPlates}</div>
               <button
                 disabled={isExecuting}
+                title={isExecuting ? lockedTitle : 'Plaka sayısını artır'}
                 onClick={() => setNumPlates(Math.min(12, numPlates + 1))}
-                className="w-6 h-6 rounded flex items-center justify-center hover:bg-gray-800 transition-colors disabled:opacity-50"
-              ><ChevronRight size={16} /></button>
+                aria-label="Plaka sayısını artır"
+                data-tk="icon-button"
+                className="g-icon-btn"
+              ><ChevronRight size={16} aria-hidden="true" /></button>
             </div>
 
             <button
               title="Programdan çık"
+              aria-label="Programdan çık"
               onClick={() => (window as any).electronAPI?.quitApp()}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-500 hover:text-[var(--color-neon-pink)] hover:bg-[var(--color-neon-pink)]/10 border border-transparent hover:border-[var(--color-neon-pink)]/30 transition-all"
+              data-tk="icon-button"
+              className="g-icon-btn w-8 h-8"
             >
-              <Power size={16} />
+              <Power size={16} aria-hidden="true" />
             </button>
           </div>
         </div>
 
-        {/* Console / Execution View */}
         {(isExecuting || completionCountdown !== null) ? (
-          <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-300">
+          <div className="flex-1 flex flex-col gap-4 g-enter">
             {completionCountdown !== null ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-emerald-400">
-                <CheckCircle2 size={56} className="drop-shadow-[0_0_10px_rgba(52,211,153,0.6)]" />
-                <div className="text-2xl font-bold tracking-widest drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]">
-                  KİLİT AÇILDI!
-                </div>
-                <div className="text-sm text-gray-400 font-mono">
-                  Otomatik küçültülüyor... {completionCountdown}
+              <div className="flex-1 flex flex-col items-center justify-center gap-3 text-[var(--tk-success)]" role="status">
+                <CheckCircle2 size={56} aria-hidden="true" />
+                <div className="text-tk-4">Kilit açıldı!</div>
+                <div className="g-hint font-mono">
+                  Otomatik küçültülüyor… {completionCountdown}
                 </div>
               </div>
             ) : (
               <>
-                <div className="flex items-center gap-3 text-[var(--color-neon-pink)] mb-2">
-                  <Terminal size={20} className="animate-pulse" />
-                  <h3 className="font-mono font-bold tracking-widest uppercase drop-shadow-[0_0_5px_var(--color-neon-pink)]">
-                    Çözüm Uygulanıyor...
-                  </h3>
-                  <span className="ml-auto font-mono text-lg font-black text-[var(--color-neon-blue)] drop-shadow-[0_0_8px_var(--color-neon-blue)]">
+                <div className="flex items-center gap-3 mb-2">
+                  <Terminal size={20} className="text-[var(--tk-renk-2-text)]" aria-hidden="true" />
+                  <h3 className="g-h3">Çözüm uygulanıyor…</h3>
+                  <span className="ml-auto tk-hero" role="status" aria-live="polite">
                     {completedHamleCount}/{totalHamleCount}
                   </span>
                 </div>
 
                 {(focusStatus === 'none' || focusStatus === 'fail') && (
-                  <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
-                    <AlertTriangle size={14} className="shrink-0 mt-px" />
+                  <div className="g-warn g-hint flex items-start gap-2">
+                    <AlertTriangle size={14} className="shrink-0 mt-1" aria-hidden="true" />
                     <span>
                       {focusStatus === 'none'
-                        ? 'Gothic penceresi bulunamadı — tuşlar o an ön planda olan pencereye gidiyor.'
-                        : 'Oyun penceresine odak verilemedi — tuşlar oyuna ulaşmayabilir.'}
+                        ? 'Uyarı: Gothic penceresi bulunamadı — tuşlar o an ön planda olan pencereye gidiyor.'
+                        : 'Uyarı: oyun penceresine odak verilemedi — tuşlar oyuna ulaşmayabilir.'}
                     </span>
                   </div>
                 )}
-                <div className="flex-1 bg-black/50 border border-gray-800 rounded-xl p-4 overflow-hidden relative">
-                  <div className="absolute inset-0 overflow-auto flex flex-col gap-2 p-4 custom-scrollbar">
+                <div className="flex-1 g-decor-frame overflow-hidden relative">
+                  <div className="absolute inset-0 overflow-auto flex flex-col gap-2 p-4">
                     {groupStepsForDisplay(macroSteps).map((group, idx) => {
                       const isDone = currentStepIndex > group.endIndex;
                       const isCurrent = !isDone && currentStepIndex >= group.startIndex;
                       const setActiveRef = isCurrent ? (el: HTMLDivElement | null) => { activeGroupRef.current = el; } : undefined;
+                      const state = isCurrent ? 'current' : isDone ? 'done' : 'pending';
 
                       if (group.type === 'push') {
-                        // Asıl "hamle": büyük, neon, göze çarpan rozet.
-                        const statusClass = isCurrent
-                          ? 'text-[var(--color-neon-blue)] border-[var(--color-neon-blue)] shadow-[0_0_16px_rgba(0,243,255,0.5)] scale-105'
-                          : isDone
-                            ? 'text-emerald-400/70 border-emerald-400/30'
-                            : 'text-gray-500 border-gray-700';
                         return (
                           <div
                             key={idx}
                             ref={setActiveRef}
-                            className={`flex items-center gap-2 font-mono font-black text-2xl px-3 py-1.5 rounded-lg border bg-black/40 transition-all duration-300 ${statusClass}`}
+                            data-state={state}
+                            className="g-step g-step-push g-enter"
+                            style={staggerDelay(idx)}
                           >
-                            {isDone && <CheckCircle2 size={18} className="shrink-0" />}
+                            {isDone && <CheckCircle2 size={18} className="shrink-0" aria-hidden="true" />}
                             {group.count}x {group.plate}{group.sign}
                           </div>
                         );
                       }
 
-                      // reset / nav: destekleyici bilgi, küçük ve soluk kalsın.
-                      const mutedClass = isCurrent
-                        ? 'text-[var(--color-neon-pink)]'
-                        : isDone
-                          ? 'text-gray-600'
-                          : 'text-gray-700';
                       return (
-                        <div key={idx} ref={setActiveRef} className={`flex items-center gap-2 font-mono text-xs pl-1 transition-colors duration-300 ${mutedClass}`}>
-                          <span className="w-3 shrink-0">{isDone ? '✓' : isCurrent ? '›' : '·'}</span>
+                        <div
+                          key={idx}
+                          ref={setActiveRef}
+                          data-state={state}
+                          className="g-step g-step-nav g-enter"
+                          style={staggerDelay(idx)}
+                        >
+                          <span className="w-3 shrink-0" aria-hidden="true">{isDone ? '✓' : isCurrent ? '›' : '·'}</span>
                           <span>{group.label}</span>
                         </div>
                       );
@@ -920,31 +949,27 @@ function App() {
             )}
           </div>
         ) : (
-          /* Normal Scrollable Content */
-          <div className="flex-1 overflow-auto flex flex-col gap-8 pb-4 pr-2 custom-scrollbar">
-            {/* Section 1: Initial States */}
+          <div className="flex-1 overflow-auto flex flex-col gap-8 pb-4 pr-2 g-enter">
             <div className="flex flex-col gap-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold tracking-widest text-gray-400 uppercase">
-                  1. Başlangıç Konumları
-                </h3>
+                <h3 className="g-h3">1. Başlangıç konumları</h3>
                 <div className="flex items-center gap-3">
                   <button
                     disabled={isExecuting || history.length === 0}
                     onClick={undo}
-                    title="Son değişikliği geri al"
-                    className="flex items-center gap-1.5 text-[10px] text-gray-500 hover:text-[var(--color-neon-blue)] uppercase tracking-widest transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                    title={isExecuting ? lockedTitle : history.length === 0 ? 'Geri alınacak değişiklik yok' : 'Son değişikliği geri al'}
+                    className="g-link"
                   >
-                    <Undo2 size={12} />
-                    Geri Al
+                    <Undo2 size={14} aria-hidden="true" />
+                    Geri al
                   </button>
                   <button
                     disabled={isExecuting}
                     onClick={resetPositionsAndVectors}
-                    title="Konumları ve vektörleri sıfırla"
-                    className="flex items-center gap-1.5 text-[10px] text-gray-500 hover:text-[var(--color-neon-blue)] uppercase tracking-widest transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                    title={isExecuting ? lockedTitle : 'Konumları ve vektörleri sıfırla'}
+                    className="g-link"
                   >
-                    <RotateCcw size={12} />
+                    <RotateCcw size={14} aria-hidden="true" />
                     Sıfırla
                   </button>
                 </div>
@@ -957,11 +982,9 @@ function App() {
                       key={i}
                       onClick={() => toggleInSet(setCompletedPositions, i)}
                       title={completedPositions.has(i) ? 'Tamamlandı işaretini kaldır' : 'Bu plakayı tamamlandı işaretle'}
-                      className={`w-10 h-10 rounded flex items-center justify-center text-xs font-mono font-bold transition-all cursor-pointer ${
-                        completedPositions.has(i)
-                          ? 'text-emerald-400 ring-2 ring-inset ring-emerald-400/70 shadow-[0_0_8px_rgba(52,211,153,0.5)]'
-                          : 'text-[var(--color-neon-blue)] hover:ring-1 hover:ring-inset hover:ring-[var(--color-neon-blue)]/40'
-                      }`}
+                      data-letter
+                      data-done={completedPositions.has(i)}
+                      className="g-cell g-cell-square"
                     >
                       {String.fromCharCode(65 + i)}
                     </button>
@@ -977,43 +1000,32 @@ function App() {
               </div>
             </div>
 
-            <div className="w-full h-px bg-gray-800/50"></div>
+            <div className="w-full g-rule"></div>
 
-            {/* Section 2: Vectors */}
             <div className="flex flex-col gap-4">
-              <h3 className="text-sm font-bold tracking-widest text-gray-400 uppercase">
-                2. Etkileşim Yönleri
-              </h3>
-              
+              <h3 className="g-h3">2. Etkileşim yönleri</h3>
+
               <div className="flex">
                 <div className="flex flex-col mr-3 gap-2">
-                  <div className="text-[9px] text-gray-500 uppercase tracking-widest h-6 flex flex-col justify-end pb-1">
-                    Hareket
-                  </div>
+                  <div className="g-label h-6 flex flex-col justify-end pb-1">Hareket</div>
                   {Array.from({length: numPlates}).map((_, i) => (
                     <button
                       key={i}
                       onClick={() => toggleInSet(setCompletedVectors, i)}
                       title={completedVectors.has(i) ? 'Tamamlandı işaretini kaldır' : 'Bu plakayı tamamlandı işaretle'}
-                      className={`w-10 h-10 rounded flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${
-                        completedVectors.has(i)
-                          ? 'text-emerald-400 ring-2 ring-inset ring-emerald-400/70 shadow-[0_0_8px_rgba(52,211,153,0.5)]'
-                          : 'text-[var(--color-neon-blue)] hover:ring-1 hover:ring-inset hover:ring-[var(--color-neon-blue)]/40'
-                      }`}
+                      data-letter
+                      data-done={completedVectors.has(i)}
+                      className="g-cell g-cell-square"
                     >
                       {String.fromCharCode(65 + i)}
                     </button>
                   ))}
                 </div>
 
-                {/* Sabit genişlik (304px = 1. Bölüm'deki 7 sütunluk -3..+3
-                    ızgarasıyla aynı: 7*40px + 6*4px boşluk), hücreler
-                    flex-1 ile bu genişliği plaka sayısına göre eşit paylaşır
-                    — aksi halde plaka sayısı 7'den azken sağda boş alan kalıyordu. */}
-                <div className="flex flex-col gap-2 w-[304px]">
+                <div className="flex flex-col gap-2 w-76">
                   <div className="flex gap-1 h-6 items-end pb-1">
                     {Array.from({length: numPlates}).map((_, col) => (
-                      <div key={col} className="flex-1 text-center text-xs font-mono text-[var(--color-neon-pink)]">
+                      <div key={col} className="flex-1 text-center g-value">
                         {String.fromCharCode(65 + col)}
                       </div>
                     ))}
@@ -1026,256 +1038,131 @@ function App() {
                   ))}
                 </div>
               </div>
-              
-              {/* Legend */}
-              <div className="flex gap-4 items-center justify-center text-[10px] text-gray-500 mt-2 bg-black/20 p-2 rounded">
-                <div className="flex items-center gap-1"><Circle size={6} className="fill-gray-600" /> Yok</div>
-                <div className="flex items-center gap-1"><ArrowRight size={10} className="text-[var(--color-neon-blue)]" /> Aynı</div>
-                <div className="flex items-center gap-1"><ArrowLeftRight size={10} className="text-[var(--color-neon-pink)]" /> Ters</div>
+
+              <div className="flex gap-4 items-center justify-center g-label g-decor-frame p-2 mt-2">
+                <div className="flex items-center gap-1"><Circle size={6} fill="currentColor" className="text-[var(--tk-border)]" aria-hidden="true" /> Yok</div>
+                <div className="flex items-center gap-1"><ArrowRight size={14} className="text-[var(--tk-renk-1)]" aria-hidden="true" /> Aynı</div>
+                <div className="flex items-center gap-1"><ArrowLeftRight size={14} className="text-[var(--tk-renk-2-text)]" aria-hidden="true" /> Ters</div>
               </div>
-              {/* Section 3: Macro Settings */}
+
               <div className="flex flex-col gap-4">
-                <h3 className="text-sm font-bold tracking-widest text-gray-400 uppercase">
-                  3. Makro Zamanlaması
-                </h3>
-                <div className="flex flex-col gap-4 bg-black/20 p-4 rounded-xl border border-gray-800/50">
-                   <div className="flex items-center gap-4">
-                     <Clock size={16} className="text-[var(--color-neon-blue)] shrink-0" />
-                     <div className="flex-1 flex flex-col gap-1">
-                       <span className="text-[9px] text-gray-500 uppercase tracking-widest">Tuşlar arası bekleme</span>
-                       <input
-                         type="range"
-                         min="50"
-                         max="1000"
-                         step="10"
-                         value={macroDelay}
-                         onChange={(e) => setMacroDelay(parseInt(e.target.value))}
-                         className="w-full accent-[var(--color-neon-blue)] h-1 bg-gray-700 rounded-full appearance-none outline-none"
-                       />
-                     </div>
-                     <div className="w-16 text-right font-mono text-sm text-[var(--color-neon-pink)] drop-shadow-[0_0_3px_var(--color-neon-pink)]">
-                       {macroDelay}ms
-                     </div>
-                   </div>
+                <h3 className="g-h3">3. Makro zamanlaması</h3>
+                <div className="flex flex-col gap-4 g-decor-box">
+                  {renderSlider(Clock, 'Tuşlar arası bekleme', macroDelay, 50, 1000, 10, setMacroDelay)}
+                  {renderSlider(Timer, 'Tuş basılı kalma süresi', holdTime, 20, 250, 5, setHoldTime)}
+                  {renderSlider(RotateCcw, 'R sonrası ek bekleme', resetDelay, 0, 3000, 50, setResetDelay)}
 
-                   <div className="flex items-center gap-4">
-                     <Timer size={16} className="text-[var(--color-neon-blue)] shrink-0" />
-                     <div className="flex-1 flex flex-col gap-1">
-                       <span className="text-[9px] text-gray-500 uppercase tracking-widest">Tuş basılı kalma süresi</span>
-                       <input
-                         type="range"
-                         min="20"
-                         max="250"
-                         step="5"
-                         value={holdTime}
-                         onChange={(e) => setHoldTime(parseInt(e.target.value))}
-                         className="w-full accent-[var(--color-neon-blue)] h-1 bg-gray-700 rounded-full appearance-none outline-none"
-                       />
-                     </div>
-                     <div className="w-16 text-right font-mono text-sm text-[var(--color-neon-pink)] drop-shadow-[0_0_3px_var(--color-neon-pink)]">
-                       {holdTime}ms
-                     </div>
-                   </div>
+                  <p className="g-hint">
+                    Tuşlar (W A S D) DirectInput uyumlu tarama kodlarıyla (SendInput) gönderilir.
+                    Gothic tuşları atlıyorsa basılı kalma süresini, animasyona yetişemiyorsa
+                    bekleme süresini artırın. Otomatik çöz, oyunun R (sıfırlama) tuşuyla
+                    başlar; kilit gerçekten sıfırlanana kadar üstteki ek bekleme uygulanır.
+                    Acil durdurma: <span className="g-value">Alt+X</span>.
+                  </p>
 
-                   <div className="flex items-center gap-4">
-                     <RotateCcw size={16} className="text-[var(--color-neon-blue)] shrink-0" />
-                     <div className="flex-1 flex flex-col gap-1">
-                       <span className="text-[9px] text-gray-500 uppercase tracking-widest">R sonrası ek bekleme</span>
-                       <input
-                         type="range"
-                         min="0"
-                         max="3000"
-                         step="50"
-                         value={resetDelay}
-                         onChange={(e) => setResetDelay(parseInt(e.target.value))}
-                         className="w-full accent-[var(--color-neon-blue)] h-1 bg-gray-700 rounded-full appearance-none outline-none"
-                       />
-                     </div>
-                     <div className="w-16 text-right font-mono text-sm text-[var(--color-neon-pink)] drop-shadow-[0_0_3px_var(--color-neon-pink)]">
-                       {resetDelay}ms
-                     </div>
-                   </div>
+                  <div className="w-full g-rule"></div>
 
-                   <p className="text-[10px] text-gray-600 leading-relaxed">
-                     Tuşlar (W A S D) DirectInput uyumlu tarama kodlarıyla (SendInput) gönderilir.
-                     Gothic tuşları atlıyorsa basılı kalma süresini, animasyona yetişemiyorsa
-                     bekleme süresini artırın. Otomatik Çöz, oyunun R (sıfırlama) tuşuyla
-                     başlar; kilit gerçekten sıfırlanana kadar üstteki ek bekleme uygulanır.
-                     Acil durdurma: <span className="text-gray-400 font-mono">Alt+X</span>.
-                   </p>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="g-label">Kilit açıldıktan sonra Space gönder</span>
+                    {renderSwitch(sendSpaceAfterSolve, () => setSendSpaceAfterSolve(v => !v), sendSpaceAfterSolve ? 'Space göndermeyi kapat' : 'Space göndermeyi aç')}
+                  </div>
 
-                   <div className="w-full h-px bg-gray-800/50"></div>
-
-                   <div className="flex items-center justify-between">
-                     <span className="text-xs text-gray-500">Kilit açıldıktan sonra Space gönder</span>
-                     <button
-                       onClick={() => setSendSpaceAfterSolve(v => !v)}
-                       title={sendSpaceAfterSolve ? 'Space göndermeyi kapat' : 'Space göndermeyi aç'}
-                       className={`shrink-0 w-12 h-7 rounded-full relative transition-colors border ${
-                         sendSpaceAfterSolve
-                           ? 'bg-[var(--color-neon-blue)]/30 border-[var(--color-neon-blue)]/60'
-                           : 'bg-black/40 border-gray-700'
-                       }`}
-                     >
-                       <span
-                         className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform ${
-                           sendSpaceAfterSolve ? 'translate-x-5 bg-[var(--color-neon-blue)]' : 'translate-x-0 bg-gray-500'
-                         }`}
-                       />
-                     </button>
-                   </div>
-
-                   {sendSpaceAfterSolve && (
-                     <div className="flex items-center gap-4">
-                       <Clock size={16} className="text-[var(--color-neon-blue)] shrink-0" />
-                       <div className="flex-1 flex flex-col gap-1">
-                         <span className="text-[9px] text-gray-500 uppercase tracking-widest">Space öncesi bekleme</span>
-                         <input
-                           type="range"
-                           min="0"
-                           max="3000"
-                           step="50"
-                           value={spaceDelay}
-                           onChange={(e) => setSpaceDelay(parseInt(e.target.value))}
-                           className="w-full accent-[var(--color-neon-blue)] h-1 bg-gray-700 rounded-full appearance-none outline-none"
-                         />
-                       </div>
-                       <div className="w-16 text-right font-mono text-sm text-[var(--color-neon-pink)] drop-shadow-[0_0_3px_var(--color-neon-pink)]">
-                         {spaceDelay}ms
-                       </div>
-                     </div>
-                   )}
+                  {sendSpaceAfterSolve && (
+                    <div className="g-enter">
+                      {renderSlider(Clock, 'Space öncesi bekleme', spaceDelay, 0, 3000, 50, setSpaceDelay)}
+                    </div>
+                  )}
                 </div>
               </div>
-              {/* Section 4: Auto Mod */}
+
               <div className="flex flex-col gap-4">
-                <h3 className="text-sm font-bold tracking-widest text-gray-400 uppercase">
-                  4. Auto Mod (Hedef Belirle)
-                </h3>
-                <div className="flex items-center justify-between bg-black/20 p-4 rounded-xl border border-gray-800/50">
-                   <div className="text-xs text-gray-500">
-                     {!targetTemplate
-                       ? 'Programın oyunda yer kaplamaması için kilit ekranından bir köşe şablonu belirleyin.'
-                       : autoHideEnabled
-                         ? 'Hedef şablon aktif. Kilit ekranı harici gizlenilecek.'
-                         : 'Hedef şablon kayıtlı ama Auto Mod kapalı — buton her zaman görünür kalır.'}
-                   </div>
-                   <button
-                     disabled={isExecuting}
-                     onClick={startTargeting}
-                     className="shrink-0 w-10 h-10 flex items-center justify-center bg-[var(--color-neon-pink)]/10 hover:bg-[var(--color-neon-pink)]/20 border border-[var(--color-neon-pink)]/30 text-[var(--color-neon-pink)] rounded-lg transition-all"
-                   >
-                     <Crosshair size={18} />
-                   </button>
+                <h3 className="g-h3">4. Auto Mod (hedef belirle)</h3>
+                <div className="flex items-center justify-between gap-4 g-decor-box">
+                  <div className="g-hint">
+                    {!targetTemplate
+                      ? 'Programın oyunda yer kaplamaması için kilit ekranından bir köşe şablonu belirleyin.'
+                      : autoHideEnabled
+                        ? 'Hedef şablon aktif. Kilit ekranı harici gizlenilecek.'
+                        : 'Hedef şablon kayıtlı ama Auto Mod kapalı — buton her zaman görünür kalır.'}
+                  </div>
+                  <button
+                    disabled={isExecuting}
+                    onClick={startTargeting}
+                    title={isExecuting ? lockedTitle : 'Kilit ekranında hedef köşe seç'}
+                    aria-label="Kilit ekranında hedef köşe seç"
+                    data-tk="icon-button"
+                    className="g-icon-btn g-icon-btn-accent shrink-0 w-10 h-10"
+                  >
+                    <Crosshair size={18} aria-hidden="true" />
+                  </button>
                 </div>
 
                 {targetTemplate && (
-                  <div className="flex items-center justify-between bg-black/20 p-4 rounded-xl border border-gray-800/50">
-                    <span className="text-xs text-gray-500">Auto Mod'u Etkinleştir</span>
-                    <button
-                      onClick={() => setAutoHideEnabled(v => !v)}
-                      title={autoHideEnabled ? "Auto Mod'u kapat" : "Auto Mod'u aç"}
-                      className={`shrink-0 w-12 h-7 rounded-full relative transition-colors border ${
-                        autoHideEnabled
-                          ? 'bg-[var(--color-neon-blue)]/30 border-[var(--color-neon-blue)]/60'
-                          : 'bg-black/40 border-gray-700'
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform ${
-                          autoHideEnabled ? 'translate-x-5 bg-[var(--color-neon-blue)]' : 'translate-x-0 bg-gray-500'
-                        }`}
-                      />
-                    </button>
+                  <div className="flex items-center justify-between gap-4 g-decor-box g-enter">
+                    <span className="g-label">Auto Mod'u etkinleştir</span>
+                    {renderSwitch(autoHideEnabled, () => setAutoHideEnabled(v => !v), autoHideEnabled ? "Auto Mod'u kapat" : "Auto Mod'u aç")}
                   </div>
                 )}
 
-                <div className="flex items-center justify-between bg-black/20 p-4 rounded-xl border border-gray-800/50">
-                  <div className="text-xs text-gray-500">
-                    <div>Pasif Mod</div>
-                    <div className="text-[10px] text-gray-600 mt-0.5">
+                <div className="flex items-center justify-between gap-4 g-decor-box">
+                  <div className="flex flex-col gap-1">
+                    <div className="g-label">Pasif Mod</div>
+                    <div className="g-hint">
                       Panel kapalıyken köşe butonu tamamen gizlenir; sadece fare o köşeye
                       gelince görünür. Açmak için F9 veya köşeye gelip tıklama.
                     </div>
                   </div>
-                  <button
-                    onClick={() => setPassiveMode(v => !v)}
-                    title={passiveMode ? 'Pasif Modu kapat' : 'Pasif Modu aç'}
-                    className={`shrink-0 w-12 h-7 rounded-full relative transition-colors border ${
-                      passiveMode
-                        ? 'bg-[var(--color-neon-purple)]/30 border-[var(--color-neon-purple)]/60'
-                        : 'bg-black/40 border-gray-700'
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform ${
-                        passiveMode ? 'translate-x-5 bg-[var(--color-neon-purple)]' : 'translate-x-0 bg-gray-500'
-                      }`}
-                    />
-                  </button>
+                  {renderSwitch(passiveMode, () => setPassiveMode(v => !v), passiveMode ? 'Pasif Modu kapat' : 'Pasif Modu aç')}
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Solution Preview — Çözümü Bul ile hesaplanan kısa özet ("3x A+"
-            gibi), oyuna henüz hiçbir tuş gönderilmeden burada listelenir.
-            Kullanıcı isterse Otomatik Çöz'e basmadan bunu kendisi uygulayabilir. */}
         {!isExecuting && completionCountdown === null && solutionSummary.length > 0 && (
-          <div className="mt-4 bg-black/40 border border-[var(--color-neon-blue)]/30 rounded-xl p-4 flex flex-col gap-3 shrink-0">
-            <div className="flex flex-wrap gap-2 font-mono">
+          <div className="mt-4 g-decor-box border-[var(--tk-border)] flex flex-col gap-3 shrink-0 g-enter">
+            <div className="flex flex-wrap gap-2">
               {solutionSummary.map((move, idx) => (
-                <span
-                  key={idx}
-                  className="bg-black/50 border border-[var(--color-neon-blue)]/50 px-3 py-1.5 rounded-lg text-xl font-black text-[var(--color-neon-blue)] shadow-[0_0_10px_rgba(0,243,255,0.25)]"
-                >
+                <span key={idx} className="g-chip g-enter" style={staggerDelay(idx)}>
                   {move.count}x {move.name}
                 </span>
               ))}
             </div>
-            <div className="text-sm font-bold text-[var(--color-neon-pink)] uppercase tracking-widest text-right drop-shadow-[0_0_5px_var(--color-neon-pink)]">
+            <div className="g-value text-right">
               Toplam {solutionSummary.reduce((sum, m) => sum + m.count, 0)} hamle
             </div>
           </div>
         )}
 
-        {/* Action Button */}
-        <div className="mt-6 pt-4 border-t border-gray-800 shrink-0 flex flex-col gap-3">
+        <div className="mt-6 pt-4 g-rule shrink-0 flex flex-col gap-3">
           {macroError && !isExecuting && (
-            <div className="flex items-start gap-2 text-[11px] text-[var(--color-neon-pink)] bg-[var(--color-neon-pink)]/10 border border-[var(--color-neon-pink)]/30 rounded-lg p-3">
-              <AlertTriangle size={14} className="shrink-0 mt-px" />
+            <div className="g-error g-hint flex items-start gap-2" role="alert">
+              <AlertTriangle size={14} className="shrink-0 mt-1" aria-hidden="true" />
               <span className="flex-1">{macroError}</span>
-              <button onClick={() => setMacroError(null)} className="text-gray-500 hover:text-gray-300">✕</button>
+              <button
+                onClick={() => setMacroError(null)}
+                title="Hatayı kapat"
+                aria-label="Hatayı kapat"
+                data-tk="icon-button"
+                className="g-icon-btn"
+              >✕</button>
             </div>
           )}
 
           {completionCountdown !== null ? null : isExecuting ? (
-            <button
-              onClick={handleStop}
-              className="w-full bg-[var(--color-neon-pink)] hover:bg-[var(--color-neon-pink)]/80 text-black font-bold tracking-widest py-4 rounded-xl flex items-center justify-center gap-3 transition-all hover:scale-[1.02] shadow-[0_0_20px_rgba(255,0,128,0.3)]"
-            >
-              <Square size={18} className="fill-black" />
-              DURDUR (ALT+X)
+            <button onClick={handleStop} className="tk-btn tk-btn-danger w-full">
+              <Square size={18} fill="currentColor" aria-hidden="true" />
+              Durdur (Alt+X)
             </button>
           ) : (
-            // İki buton her zaman yan yana: "Çöz" sadece önizler, "Otomatik
-            // Çöz" önce çözüm bulunmuş olsun beklemez — kendi hesaplayıp
-            // hemen uygular.
             <div className="flex gap-3">
-              <button
-                onClick={handleFindSolution}
-                className="w-2/5 bg-[var(--color-neon-purple)]/10 hover:bg-[var(--color-neon-purple)]/20 border border-[var(--color-neon-purple)]/50 text-[var(--color-neon-purple)] font-bold tracking-widest py-4 rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02]"
-              >
-                <Search size={16} />
-                ÇÖZ
+              <button onClick={handleFindSolution} className="tk-btn tk-btn-ghost w-2/5">
+                <Search size={16} aria-hidden="true" />
+                Çöz
               </button>
-              <button
-                onClick={handleAutoSolve}
-                className="w-3/5 bg-[var(--color-neon-blue)] hover:bg-[var(--color-neon-blue)]/80 text-black font-bold tracking-widest py-4 rounded-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02] shadow-[0_0_20px_rgba(0,243,255,0.3)]"
-              >
-                <Play size={18} className="fill-black" />
-                OTOMATİK ÇÖZ
+              <button onClick={handleAutoSolve} className="tk-btn tk-btn-primary w-3/5">
+                <Play size={18} fill="currentColor" aria-hidden="true" />
+                Otomatik çöz
               </button>
             </div>
           )}

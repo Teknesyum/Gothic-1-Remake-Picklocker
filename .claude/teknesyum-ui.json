@@ -1,0 +1,35 @@
+{
+  "version": "1.1.0",
+  "plugin": "0.26.0",
+  "template": "custom",
+  "off": false,
+  "targets": [
+    "css",
+    "react"
+  ],
+  "typography": {
+    "sans": "'Atkinson Hyperlegible Next', 'Segoe UI', system-ui, sans-serif",
+    "mono": "'Cascadia Mono', Consolas, ui-monospace, monospace",
+    "scale": [
+      14,
+      16,
+      20,
+      24,
+      32
+    ]
+  },
+  "signature": {
+    "off": false,
+    "github": "https://github.com/Teknesyum",
+    "sponsor": "https://github.com/sponsors/Teknesyum"
+  },
+  "note": "",
+  "installedAt": "2026-09-27T16:01:54.114Z",
+  "palette": {
+    "primary": "#00f3ff",
+    "secondary": "#ff00ea",
+    "tertiary": "#b026ff",
+    "surface": "#0a0a0f",
+    "dark": true
+  }
+}

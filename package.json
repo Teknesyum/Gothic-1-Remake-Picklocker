@@ -17,7 +17,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dist": "npm run build && electron-builder --win portable",
-    "dist:installer": "npm run build && electron-builder --win nsis"
+    "dist:installer": "npm run build && electron-builder --win nsis",
+    "icon": "electron scripts/build-icon.cjs"
   },
   "build": {
     "appId": "com.gothic1.lockpicker",
@@ -30,6 +31,7 @@
       "preload.cjs",
       "macro.cjs",
       "dist/**/*",
+      "assets/icon.ico",
       "package.json",
       "!node_modules/**/*"
     ],
@@ -38,7 +40,8 @@
       "target": [
         "portable"
       ],
-      "artifactName": "Gothic1LockPicker-${version}-portable.${ext}"
+      "artifactName": "Gothic1LockPicker-${version}-portable.${ext}",
+      "icon": "assets/icon.ico"
     },
     "portable": {
       "artifactName": "Gothic1LockPicker-${version}-portable.${ext}"
@@ -46,7 +49,9 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "Gothic1LockPicker-${version}-setup.${ext}"
+      "artifactName": "Gothic1LockPicker-${version}-setup.${ext}",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico"
     }
   },
   "dependencies": {
