@@ -1,0 +1,71 @@
+{
+  "name": "Gothic 1 LockPicker",
+  "category": "games",
+  "asset": "Gothic1LockPicker-win-x64.zip",
+  "method": "zip",
+  "run": "Gothic1LockPicker.exe",
+  "icon": "assets/icon-256.png",
+  "catalog": {
+    "category": "games",
+    "tags": {
+      "tr": [
+        "oyun",
+        "gothic",
+        "kilit-açma",
+        "overlay"
+      ],
+      "en": [
+        "game",
+        "gothic",
+        "lockpicking",
+        "overlay"
+      ]
+    },
+    "summary": {
+      "tr": "Gothic 1 Remake'teki plaka ve kadran kilit açma bulmacasını çözen, oyun penceresinin üstünde duran şeffaf bir Electron katmanı. Her plakanın mevcut konumunu ve hamlelerin diğer plakaları nasıl etkilediğini girdiğinizde en kısa hamle dizisini bulur; isterseniz çözümü oyuna kendisi uygular. Paneli oyun içinde F9 ile açıp kapatabilir, çalışan makroyu acil durdurma tuşuyla kesebilirsiniz. Kilit ekranını tanıyan otomatik ve gizli çalışan pasif kipleri vardır. Gothic 1 Remake oyuncuları için.",
+      "en": "A transparent Electron overlay that sits on top of the game window and solves the plate and dial lock-picking mini-game in Gothic 1 Remake. Enter each plate's current position and how each move affects the other plates, and it finds the shortest move sequence; if you want, it applies the solution to the game itself. The panel opens and closes in game with F9, and a hotkey stops a running macro at once. An auto mode recognises the lock screen and a passive mode keeps it out of sight. For Gothic 1 Remake players."
+    },
+    "points": {
+      "tr": [
+        "Gothic 1 Remake kilit açma mini oyununu çözer",
+        "Oyun penceresi üstünde saydam kaplama",
+        "Levha başlangıç konumu ve etkileşim yönü girişi",
+        "En kısa hamle dizisini hesaplar",
+        "Çözümü WASD tuşlarıyla otomatik uygular",
+        "Ekran şablonunu tanıyıp paneli otomatik gösterir (Otomatik Mod)",
+        "Pasif modda köşe imleci gizli kalır, üstüne gelince açılır",
+        "Kısayol tuşlarıyla panel açma ve acil durdurma",
+        "Her açılışta güncelleme kontrolü"
+      ],
+      "en": [
+        "Solves the Gothic 1 Remake lock-picking mini-game",
+        "Transparent overlay on top of the game window",
+        "Enter each plate's start position and interaction directions",
+        "Computes the shortest move sequence",
+        "Auto-applies the solution via WASD keystrokes",
+        "Auto Mode detects the lock screen and shows the panel",
+        "Passive Mode keeps the corner cue hidden until hovered",
+        "Hotkeys to toggle the panel and emergency-stop",
+        "Checks for updates on every launch"
+      ]
+    },
+    "uses": {
+      "tr": [
+        "Kilit bulmacasını en kısa yoldan çöz",
+        "Çözümü oyuna kendiliğinden uygulat",
+        "Paneli oyunun üstünde saydam gör",
+        "Kısayolla aç ve acil durdur"
+      ],
+      "en": [
+        "Solve lock puzzles in fewest moves",
+        "Let it apply the solution",
+        "Use a transparent in-game overlay",
+        "Toggle and stop with hotkeys"
+      ]
+    },
+    "lead": {
+      "tr": "Gothic 1 Remake için Kilit Çözücü ve Oyun Üstü Panel",
+      "en": "Lock-Picking Solver and Overlay for Gothic 1 Remake"
+    }
+  }
+}
