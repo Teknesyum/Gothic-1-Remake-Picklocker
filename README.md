@@ -49,7 +49,14 @@ You can. The minigame is a small puzzle and trial and error works. What this add
 
 Windows 10 or 11, x64.
 
-**With Teknesyum Base.** Pick **Gothic 1 LockPicker** from the list and press install.
+**Recommended: Teknesyum Base (Windows).**
+
+1. Download [`Teknesyum-Base.exe`](https://github.com/Teknesyum/Teknesyum-Base/releases/latest/download/Teknesyum-Base.exe) ([`.sha256`](https://github.com/Teknesyum/Teknesyum-Base/releases/latest/download/Teknesyum-Base.exe.sha256)) and run it. No admin rights are needed.
+2. Find **Gothic 1 LockPicker** in the list and install it. Base also updates and removes it later.
+
+Base is not code-signed yet, so Windows SmartScreen may warn on first launch: choose *More info*, then *Run anyway*. More: [Teknesyum Base](https://github.com/Teknesyum/Teknesyum-Base).
+
+**Or install manually.**
 
 **With the installer.** From the [latest release](https://github.com/Teknesyum/Gothic-1-Remake-Picklocker/releases/latest), download `Kur.zip`, unzip it and double-click `Kur.bat`. It downloads `Gothic1LockPicker-win-x64.zip` with its `.sha256` file and refuses to install if the checksum does not match. The program goes to `%LOCALAPPDATA%\Programs\Gothic 1 LockPicker`, so no admin rights are needed, and gets a desktop and a Start menu shortcut.
 

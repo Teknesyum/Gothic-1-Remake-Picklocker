@@ -49,7 +49,14 @@ Gothic 1 (Remake) üstünde duran saydam bir Electron penceresidir. Her plakanı
 
 Windows 10 ya da 11, x64.
 
-**Teknesyum Base ile.** Listeden **Gothic 1 LockPicker**'ı seç ve kur'a bas.
+**Önerilen: Teknesyum Base (Windows).**
+
+1. [`Teknesyum-Base.exe`](https://github.com/Teknesyum/Teknesyum-Base/releases/latest/download/Teknesyum-Base.exe) dosyasını ([`.sha256`](https://github.com/Teknesyum/Teknesyum-Base/releases/latest/download/Teknesyum-Base.exe.sha256)) indirip çalıştırın. Yönetici hakkı gerekmez.
+2. Listeden **Gothic 1 LockPicker** uygulamasını bulup kurun. Base sonradan güncellemeyi ve kaldırmayı da yapar.
+
+Base henüz imzalı değil; Windows SmartScreen ilk açılışta uyarabilir: *Diğer bilgiler*'i, sonra *Yine de çalıştır*'ı seçin. Ayrıntı: [Teknesyum Base](https://github.com/Teknesyum/Teknesyum-Base).
+
+**Ya da elle kurun.**
 
 **Kurulum paneliyle.** [Son sürümden](https://github.com/Teknesyum/Gothic-1-Remake-Picklocker/releases/latest) `Kur.zip` dosyasını indir, aç ve `Kur.bat`'a çift tıkla. Panel `Gothic1LockPicker-win-x64.zip` dosyasını `.sha256` dosyasıyla birlikte indirir; sağlama tutmazsa kurmaz. Program `%LOCALAPPDATA%\Programs\Gothic 1 LockPicker` altına gider, yönetici yetkisi gerekmez; masaüstüne ve Başlat menüsüne kısayol yazılır.
 
